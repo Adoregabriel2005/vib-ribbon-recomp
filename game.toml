@@ -1,0 +1,54 @@
+# Autofilled by tools/new_project_layout/probe_disc.py from your legal dump.
+# Review before shipping. Runtime quirks / overlay seeds still need hand work.
+
+[game]
+name = "VibRibbon"
+id = "SCES-02873"
+players = 1
+exe = "disc/SCES_028.73"
+disc = "E:\\ROMS\\PS1\\VIB-RIBBON\\Vib-Ribbon (Europe) (En,Fr,De,Es,It).cue"
+load_address = "0x80010000"
+entry_pc = "0x80011F2C"
+text_size = "0x00006800"
+stack_base = "0x801FFFF0"
+
+# Digests are for data Track 01 (first BINARY FILE / TRACK 01).
+[prepare_disc]
+out_dir = "disc"
+bin_name = "Vib-Ribbon (Europe) (En,Fr,De,Es,It) (Track 1).bin"
+cue_name = "Vib-Ribbon (Europe) (En,Fr,De,Es,It).cue"
+boot_exe = "SCES_028.73"
+known_sizes = [15680784]
+known_md5 = [
+  "1a6c411a13d1a440ff23963e3721d2be",
+]
+known_sha1 = [
+  "a2ba376167bda9ed03ab89a11ade12410d75ede7",
+]
+known_crc32 = [
+  "0f387227",
+]
+
+[recompiler]
+seeds = "seeds/ghidra_funcs.txt"
+out_dir = "generated"
+strict = true
+
+[runtime]
+window_title = "VibRibbon Recompiled"
+memcard_dir = "saves"
+overlay_cache = true
+
+[video]
+renderer = "opengl"
+aspect_ratio = "4:3"
+
+[controller]
+default_mode = "digital"
+
+# Online mount gate: digests + track count + optional TOC fingerprint
+# (see docs/NETPLAY.md).
+[netplay]
+require_cue = true
+required_tracks = 8
+required_disc_fp = "b5e1844423236500e99413df8947439eed36e295ffea255bb3a120d21e39082f"
