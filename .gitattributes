@@ -9,7 +9,8 @@
 *.toml text eol=lf
 *.json text eol=lf
 *.yml text eol=lf
-*.patch text eol=lf
+# Preserve mixed endings inside hunks: some pinned upstream headers use CRLF.
+*.patch -text
 # Patch context and vendored licenses retain their upstream whitespace.
 *.patch -whitespace
 native/third_party/** -whitespace
