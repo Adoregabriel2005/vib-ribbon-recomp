@@ -21,8 +21,14 @@ class PatchSeriesTests(unittest.TestCase):
                 base = Path(folder) / module
                 base.mkdir()
                 paths = set()
+                published = {}
                 for patch in patches:
-                    for line in (ROOT / 'patches' / patch).read_text(encoding='utf-8').splitlines():
+                    # Test the actual Git blobs, including their line endings.
+                    data = subprocess.check_output(['git', '-C', str(ROOT),
+                                                    'show', ':patches/' + patch])
+                    published[patch] = Path(folder) / patch
+                    published[patch].write_bytes(data)
+                    for line in data.decode('utf-8').splitlines():
                         if line.startswith('--- a/'):
                             paths.add(line[6:])
                 for name in paths:
@@ -34,11 +40,11 @@ class PatchSeriesTests(unittest.TestCase):
                     destination.write_bytes(data)
                 subprocess.run(['git', 'init', '-q', str(base)], check=True, capture_output=True)
                 for patch in patches:
-                    path = str(ROOT / 'patches' / patch)
+                    path = str(published[patch])
                     subprocess.run(['git', '-C', str(base), 'apply', '--check', path],
                                    check=True, capture_output=True)
                     subprocess.run(['git', '-C', str(base), 'apply', path],
                                    check=True, capture_output=True)
                 for patch in reversed(patches):
                     subprocess.run(['git', '-C', str(base), 'apply', '--reverse',
-                                    str(ROOT / 'patches' / patch)], check=True, capture_output=True)
+                                    str(published[patch])], check=True, capture_output=True)
