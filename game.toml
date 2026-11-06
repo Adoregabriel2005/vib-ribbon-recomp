@@ -6,7 +6,7 @@ name = "VibRibbon"
 id = "SCES-02873"
 players = 1
 exe = "disc/SCES_028.73"
-disc = "E:\\ROMS\\PS1\\VIB-RIBBON\\Vib-Ribbon (Europe) (En,Fr,De,Es,It).cue"
+disc = "disc/Vib-Ribbon (Europe) (En,Fr,De,Es,It).cue"
 load_address = "0x80010000"
 entry_pc = "0x80011F2C"
 text_size = "0x00006800"
@@ -37,17 +37,23 @@ strict = true
 [runtime]
 window_title = "VibRibbon Recompiled"
 memcard_dir = "saves"
+bios_hle = false
+hle_scheduler = false
 overlay_cache = true
+overlay_backend = "gcc"
 
 [video]
 renderer = "opengl"
 aspect_ratio = "4:3"
+internal_resolution = "native"
+supersampling = 1
 
 [controller]
 default_mode = "digital"
 
 # Online mount gate: digests + track count + optional TOC fingerprint
 # (see docs/NETPLAY.md).
+multitap_analog = true
 [netplay]
 require_cue = true
 required_tracks = 8

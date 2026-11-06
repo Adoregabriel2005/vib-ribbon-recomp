@@ -1,0 +1,74 @@
+diff --git a/recompiler/src/config_loader.cpp b/recompiler/src/config_loader.cpp
+index 55c682d3..ca323641 100644
+--- a/recompiler/src/config_loader.cpp
++++ b/recompiler/src/config_loader.cpp
+@@ -3186,6 +3186,17 @@ UserSettings load_user_settings(const fs::path& path) {
+     // Each field guarded independently so one bad value can't blank the rest.
+     auto try_get = [](auto&& fn) { try { fn(); } catch (const std::exception&) {} };
+ 
++    if (doc.contains("audio")) try_get([&]{
++        const auto& audio = toml::find(doc, "audio");
++        if (audio.contains("volume")) {
++            const auto value = toml::find<int64_t>(audio, "volume");
++            if (value >= 0 && value <= 100) {
++                s.audio_volume = static_cast<int>(value);
++                s.has_audio_volume = true;
++            }
++        }
++    });
++
+     if (doc.contains("video")) {
+         const toml::value& v = toml::find(doc, "video");
+         if (v.contains("renderer")) try_get([&]{
+@@ -3536,6 +3547,9 @@ bool save_user_settings(const fs::path& path, const UserSettings& s) {
+     f << "# psxrecomp user settings - written by the launcher. Safe to hand-edit.\n";
+     f << "# Overrides the bundled game.toml; the command line overrides this file.\n\n";
+ 
++    if (s.has_audio_volume)
++        f << "[audio]\nvolume = " << std::clamp(s.audio_volume, 0, 100) << "\n\n";
++
+     f << "[video]\n";
+     if (s.has_renderer)
+         f << "renderer          = \""
+diff --git a/recompiler/src/config_loader.h b/recompiler/src/config_loader.h
+index e0965040..3531e9f2 100644
+--- a/recompiler/src/config_loader.h
++++ b/recompiler/src/config_loader.h
+@@ -1575,6 +1575,7 @@ struct UserSettings {
+     // Window size: width in px; height is always width*3/4 (PSX 4:3). Applies to
+     // both the launcher and the emulator window so they boot at the same size.
+     bool has_window_width   = false; int  window_width   = 1280; // -> 1280x960
++    bool has_audio_volume   = false; int  audio_volume   = 100;
+     // No antialiasing / texture_filtering / fmv_filter / crt_filter /
+     // scanlines / scanline_strength / geometry_correction /
+     // perspective_texturing keys: the built-in CRT Filter, Image Filtering
+diff --git a/runtime/src/main.cpp b/runtime/src/main.cpp
+index 5f5dcbfc..bd63213f 100644
+--- a/runtime/src/main.cpp
++++ b/runtime/src/main.cpp
+@@ -18535,6 +18535,7 @@ int main(int argc, char** argv) {
+         PSXRecompV4::UserSettings us =
+             PSXRecompV4::load_user_settings(settings_path);
+         user_settings_has_renderer = us.has_renderer;
++        if (us.has_audio_volume) host_volume_set(us.audio_volume);
+         if (us.parse_error) {
+             /* The file exists but is not valid TOML: every setting in it (the
+              * user's renderer choice, BIOS/disc paths, ...) is being ignored,
+@@ -19765,6 +19766,8 @@ int main(int argc, char** argv) {
+                 seed.has_auto_skip_fmv = skip_fmv_offered;
+                 seed.turbo_loads = ls.turbo_loads != 0;
+                 seed.has_turbo_loads = turbo_loads_offered;
++                seed.audio_volume = ls.volume;
++                seed.has_audio_volume = true;
+                 host_volume_set(ls.volume);
+                 /* Bundled-BIOS builds ignore any launcher-supplied path (the
+                  * picker is hidden, but a stale settings file could still
+@@ -22288,6 +22291,8 @@ soft_return_lobby:
+                     exe_dir_from_argv(argv[0]) / "settings.toml";
+                 PSXRecompV4::UserSettings us =
+                     PSXRecompV4::load_user_settings(settings_path);
++                us.audio_volume = ls.volume;
++                us.has_audio_volume = true;
+                 const int un = std::min(PSX_MAX_PLAYERS,
+                                         PSXRecompV4::UserSettings::kMaxControllerPlayers);
+                 for (int i = 0; i < un; ++i) {

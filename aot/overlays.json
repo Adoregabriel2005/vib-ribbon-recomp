@@ -1,0 +1,13 @@
+{
+  "schema": "psxrecomp AOT methods v1",
+  "game_id": "SCES-02873",
+  "disc_hashes": {"sha1": "a2ba376167bda9ed03ab89a11ade12410d75ede7"},
+  "strict_bounds": true,
+  "expected_records": 3,
+  "static_output": "generated/overlays_static.c",
+  "images": [
+    {"method": "psx_exe", "files": ["MAIN_G.EXE"], "entries": ["0x8005405C"]},
+    {"method": "psx_exe", "files": ["MAIN_K.EXE"], "entries": ["0x800294B4"]},
+    {"method": "psx_exe", "files": ["MAIN_T.EXE"], "entries": ["0x8002BF78"]}
+  ]
+}

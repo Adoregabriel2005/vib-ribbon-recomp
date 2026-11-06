@@ -1,128 +1,77 @@
-# VibRibbon Recompiled
+# Vib-Ribbon Recomp
 
-<!-- retcomm-readme-metrics -->
-[![GitHub downloads (all assets, all releases)](https://img.shields.io/github/downloads/RetroPortingToolKit/vib-ribbon-recomp/total)](https://github.com/RetroPortingToolKit/vib-ribbon-recomp/releases)
-[![GitHub downloads (latest release)](https://img.shields.io/github/downloads/RetroPortingToolKit/vib-ribbon-recomp/latest/total)](https://github.com/RetroPortingToolKit/vib-ribbon-recomp/releases/latest)
-[![GitHub release](https://img.shields.io/github/v/release/RetroPortingToolKit/vib-ribbon-recomp)](https://github.com/RetroPortingToolKit/vib-ribbon-recomp/releases/latest)
-<!-- /retcomm-readme-metrics -->
+Port experimental para Windows x64 do Vib-Ribbon europeu **SCES-02873**, usando
+[PSXRecomp](https://github.com/RetroPortingToolKit/psxrecomp) e seu runtime.
+Combina código recompilado, overlays nativos e fallback instrumentado.
+Fidelidade completa e 100% de cobertura ainda não foram comprovadas.
 
-Static recompilation of **VibRibbon** built on
-[psxrecomp](https://github.com/mstan/psxrecomp) and
-[recomp-ui](https://github.com/RetroPortingToolKit/recomp-ui).
+## Disponível nos testes
 
-_Add a short pitch in catalog_identity.json / README._
+- Boot OpenBIOS/LLE, menus originais e entrada em partidas.
+- Menu MP3 integrado a opção de CD próprio, com **Jogar** e **Assistir (Demo)**.
+  O jogo analisa o áudio e gera os próprios obstáculos, sem player sobreposto.
+- Interface PC em PT-BR: volume, janela/tela cheia, resolução interna,
+  renderizador e VSync. Algumas alterações exigem reiniciar.
+- Acesso as opções originais de som/vibracao e as músicas oficiais.
 
-| | |
-|---|---|
-| Players | 1 |
-| Region | USA |
-| Publisher | - |
-| Year | - |
+**Experimental:** áudio/sincronização, fim de faixa, pausa/retomada, controle e
+estabilidade prolongada. CD físico/virtual tem backend implementado, ainda sem
+validação com dispositivo real. PT-BR cobre a interface PC; textos do jogo
+permanecem originais. Demo das faixas oficiais ainda precisa de teste.
+Veja [STATUS](docs/STATUS.md) e [requisitos](docs/PRODUCT-MENUS.md).
 
-Scaffolded with the New Project Layout. See
-`psxrecomp/docs/GAME_PROJECT_SETUP.md` for the full flow.
+## Compilar no Windows
 
-<!-- retcomm-readme-launcher -->
-## Retro Launcher
+Instale Git, Python 3.11+, CMake, LLVM-MinGW/Clang, mingw32-make e gcc no PATH.
+Use PowerShell. O build usa dois processos de compilação por vez.
 
-You can run this title **standalone** (download the release zip, point it at
-your disc, play), or manage installs, updates, and disc/BIOS wiring with
-**[Retro Launcher](https://github.com/RetroPortingToolKit/Retro-Launcher)** —
-the Retro Compilation Manager hub for self-compiling recomps.
-
-[Downloads](https://github.com/RetroPortingToolKit/Retro-Launcher/releases) ·
-[Full README & features](https://github.com/RetroPortingToolKit/Retro-Launcher#readme)
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/RetroPortingToolKit/Retro-Launcher/main/docs/screenshots/hub-and-game-launcher.png" alt="Retro hub with a background build, next to a title’s recomp-ui launcher" width="720">
-</p>
-
-<p align="center">
-  <img src="https://raw.githubusercontent.com/RetroPortingToolKit/Retro-Launcher/main/docs/screenshots/queue-and-background-build.png" alt="Background cmake build with titles queued" width="720">
-</p>
-
-Retro checks for updates, installs the prebuilt release zips, and automates
-BIOS/ROM/save plumbing so you are not stuck repeating each game’s first run by hand.
-<!-- /retcomm-readme-launcher -->
-
-## Legal
-
-You must own the original game. Disc images under `disc/` are gitignored and
-must never be committed. Retail BIOS dumps are not redistributed and no C
-derived from one may be committed; releases run on the bundled MIT OpenBIOS.
-
-`generated/` (the recompiled game C) **is committed**: releases ship the
-compiled game, built by CI from that tree. Regenerate and commit it whenever
-seeds or the framework pin change.
-
-Default app icon: `assets/psxrecomp.ico` (and `.png` / `.svg`) — Retro-themed controller mark from `psxrecomp/assets/`. Windows builds embed it via `APP_ICON`.
-
-Optional box art under `launcher_assets/img/` may come from
-[libretro-thumbnails](https://github.com/libretro-thumbnails/libretro-thumbnails)
-(`Named_Boxarts`); see `BOXART_SOURCE.txt` when present.
-
-## Quick start (dev)
-
-```bash
-git submodule update --init --recursive
-./psxrecomp/tools/ci/build_emitters.sh
-python3 psxrecomp/psxrecomp_cli.py generate \
-  --config game.toml --project-root . --disc disc/<your>.cue
-git add generated && git commit -m "Regenerate game C"
-cmake -S . -B build-release -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build-release --target psx-runtime
+```powershell
+git clone --recurse-submodules --shallow-submodules https://github.com/Adoregabriel2005/vib-ribbon-recomp.git
+cd vib-ribbon-recomp
+./scripts/setup.ps1
+./scripts/build.ps1 -NativeUI -Disc 'D:\Jogos\Vib-Ribbon (Europe) (En,Fr,De,Es,It).cue'
+./scripts/run.ps1 -NativeUI
 ```
 
-Official optimized Windows/Linux releases use the maintained shared builder
-with the title disc available. Commit the desired `VERSION`, source and
-framework pins, then run:
+Use seu próprio dump europeu: CUE e **todas as oito faixas BIN** juntas.
+O preparo valida o hash, extrai o boot localmente e salva o caminho privado em
+`game.local.toml`, ignorado pelo Git. Nao altera nem duplica as faixas originais.
+O código do disco e gerado localmente em `generated/`.
+O primeiro build baixa dependências e pode levar vários minutos.
 
-```bash
-scripts/package_release.sh --channel public
-# Use --channel playtest for a non-public package; --platform selects Windows/Linux.
+Submódulos fixados em [framework_pins.txt](framework_pins.txt). O setup aplica
+patches uma vez e interrompe em conflitos, preservando alterações locais.
+Para recompilar depois: `./scripts/build.ps1 -NativeUI -SkipGenerate`.
+
+## Testar músicas
+
+1. Entre na opção de CD próprio ou pressione **F10** / **Ctrl+L**.
+2. Escolha um MP3, aguarde e selecione **Jogar** ou **Assistir (Demo)**.
+3. No jogo, confirme **Single track** ou **All tracks** e a faixa **1**.
+
+O cache em `build-native-ui/music-cache` alimenta o caminho CD-ROM/CDDA/SPU.
+Ocupa aproximadamente 10,6 MB por minuto e ainda não tem limpeza automática.
+Nao remova a faixa preparada enquanto estiver em uso. Originais ficam intactos.
+Musicas oficiais continuam pelo disco do jogo. Padrão: 4:3, resolução nativa,
+REFERENCE e LLE; melhorias gráficas são opcionais.
+
+## Testes e contribuições
+
+```powershell
+python -m unittest discover -s tools/tests -v
+python tools/check_repository.py
 ```
 
-On Windows PowerShell, use
-`psxrecomp/tools/package_title_release.ps1 --channel public`. The generated
-`packaging/release.toml` and player instructions define the title payload.
-The shared builder owns regeneration, qualified build defaults, fresh private
-PGO boot training on supported native toolchains, staging and verification.
-Boot training is a build step, not gameplay qualification or a performance
-claim. See `psxrecomp/docs/RELEASING_A_TITLE.md`.
+Diagnóstico do jogo: compile com `-NativeUI -Diagnostics`. Probes usam saves
+próprios e encerram apenas o processo iniciado. Relatórios, capturas e caches
+ficam locais. A CI testa ferramentas e tradução sem ROM; não comprova gameplay.
+Veja [CONTRIBUTING](CONTRIBUTING.md) para reportar problemas.
 
-The separate *Release builds* CI workflow (tag `vX.Y.Z` or dispatch) builds
-committed `generated/` C without a disc on Linux, Windows and macOS. It uses
-`scripts/package_prebuilt_release.sh` and attaches compiled-game ZIPs. That
-explicit prebuilt path does not train selective PGO and is not the official
-optimized-release command. The common builder does not add macOS support.
+Este repositório não inclui ROMs, músicas, BIOS comerciais, executaveis originais
+ou C gerado do disco. Nao há release estável publicada.
 
-Studio's current Export action still uses the old prebuilt argument contract;
-use the shared command above for optimized releases until Studio adopts the
-recipe/channel interface. Its packager detection and `packaging/` warning also
-need that adoption; the generated recipe is maintained configuration, not a
-forked packager.
+## Créditos
 
-## Symbols
-
-Progressive map: `symbols.toml` → `python3 tools/sync_symbols.py` →
-`psx_symbols.h` (`PSX_FN_*`). See `psxrecomp/docs/SYMBOLS.md`.
-
-## Framework pins
-
-Submodule gitlinks (`psxrecomp`, optional `recomp-ui`, nested `recomp-net`)
-are authoritative. `framework_pins.txt` is an optional scaffold snapshot;
-release CI logs SHAs with `record_pins.sh` but builds whatever the gitlinks
-resolve to. Bump submodules deliberately — do not float on `main`/`master`
-in release CI.
-
-<!-- retcomm-readme-raid -->
----
-
-<p align="center">
-  <sub><b>R.A.I.D. — Retro AI Development</b> · a Discord for AI-assisted retro reverse-engineering, decomp &amp; recomp</sub>
-</p>
-
-<p align="center">
-  <a href="https://discord.gg/Ad9BwSzctP"><img src=".github/raid-discord.png" alt="Join the Retro AI Development (R.A.I.D.) Discord" width="200"></a>
-</p>
-<!-- /retcomm-readme-raid -->
+Projeto independente, sem afiliação com os titulares de Vib-Ribbon.
+PSXRecomp usa PolyForm Noncommercial 1.0.0; dependências preservam suas licenças.
+Veja [THIRD_PARTY](THIRD_PARTY.md).

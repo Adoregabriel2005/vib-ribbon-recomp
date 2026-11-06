@@ -1,0 +1,63 @@
+diff --git a/runtime/src/interrupts.c b/runtime/src/interrupts.c
+index fd390f9a..631de546 100644
+--- a/runtime/src/interrupts.c
++++ b/runtime/src/interrupts.c
+@@ -2241,6 +2241,27 @@ irq_deliver_eval:
+ #undef COSIM_IRQ_NOTE
+ #undef COSIM_IRQ_TAKE_PC
+ #endif
++    /* A guest scheduler can change PCB[0] in its IRQ callback. LLE must
++     * suspend the interrupted native stack too; falling through would execute
++     * the outgoing block with the target thread's restored registers. */
++    if (prev_in_exception == 0 && !psx_hle_scheduler_enabled() &&
++        entry_tcb != 0u && exit_tcb != 0u && entry_tcb != exit_tcb) {
++        extern int psx_irq_thread_switch_fiber(CPUState*, uint32_t, uint32_t);
++        int saved_dirty_active = g_dirty_interp_active;
++        uint32_t outgoing_resume_pc = g_exception_real_epc;
++        uint32_t outgoing_compiled_resume = s_compiled_interrupt_resume_pc;
++        g_dirty_interp_active = 0;
++        int switched = psx_irq_thread_switch_fiber(cpu, entry_tcb, exit_tcb);
++        g_dirty_interp_active = saved_dirty_active;
++        s_compiled_interrupt_resume_pc = outgoing_compiled_resume;
++        if (switched) {
++            for (int i = 0; i < 32; i++) cpu->gpr[i] = saved_gpr[i];
++            cpu->hi = saved_hi;
++            cpu->lo = saved_lo;
++            cpu->cop0[COP0_SR] = sr;
++            cpu->pc = outgoing_resume_pc;
++        }
++    }
+     if (np_present_after_irq && !s_defer_switch_pending)
+         gpu_vblank_flush_present();
+ #undef PSX_CHECK_INTERRUPTS_RETURN
+diff --git a/runtime/src/traps.c b/runtime/src/traps.c
+index 46074364..3fbac326 100644
+--- a/runtime/src/traps.c
++++ b/runtime/src/traps.c
+@@ -544,6 +544,26 @@ static HostThreadFiber* psx_get_or_create_host_thread(CPUState* cpu, uint32_t tc
+     return slot;
+ }
+ 
++/* The guest IRQ handler already saved the outgoing TCB and restored the target.
++ * Do not save CPUState here: it now belongs to the target, not the host stack
++ * being suspended. This is the LLE counterpart of the scheduler IRQ escape. */
++int psx_irq_thread_switch_fiber(CPUState* cpu, uint32_t outgoing_tcb, uint32_t target_tcb)
++{
++    if (!psx_is_valid_tcb(cpu, outgoing_tcb) ||
++        !psx_is_valid_tcb(cpu, target_tcb) ||
++        psx_tcb_state(cpu, target_tcb) != 0x4000u)
++        return 0;
++    HostThreadFiber* current = psx_bind_current_host_thread(cpu, outgoing_tcb);
++    HostThreadFiber* target = psx_get_or_create_host_thread(cpu, target_tcb);
++    if (!target) return 0;
++    target->return_fiber = current->fiber;
++    target->return_tcb = outgoing_tcb;
++    debug_server_log_thread_event(30, cpu, outgoing_tcb, target_tcb, cpu->pc);
++    psx_fiber_switch(target->fiber);
++    psx_set_current_tcb(cpu, outgoing_tcb);
++    return 1;
++}
++
+ static int psx_change_thread_fiber(CPUState* cpu, uint32_t target_tcb)
+ {
+     uint32_t current_tcb = psx_current_tcb_ptr(cpu);

@@ -1,0 +1,911 @@
+diff --git a/runtime/include/cdrom.h b/runtime/include/cdrom.h
+index e814e5cb..a82dea72 100644
+--- a/runtime/include/cdrom.h
++++ b/runtime/include/cdrom.h
+@@ -105,6 +105,7 @@ void cdrom_disc_roster_set(const char *const *paths, int count,
+                            int selected_1based);
+ int  cdrom_disc_roster_count(void);
+ int  cdrom_disc_selected(void);
++const char *cdrom_mounted_path(void);
+ const char *cdrom_disc_roster_path(int index_1based);
+ int  cdrom_disc_select(int index_1based);
+ 
+diff --git a/runtime/include/iso_reader.h b/runtime/include/iso_reader.h
+index 7737d494..9debd8a4 100644
+--- a/runtime/include/iso_reader.h
++++ b/runtime/include/iso_reader.h
+@@ -1,271 +1,274 @@
+-#pragma once
+-
+-#include <cstdint>
+-#include <array>
+-#include <string>
+-#include <fstream>
+-#include <memory>
+-#include <unordered_map>
+-#include <vector>
+-
+-/**
+- * ISO/BIN/CUE Reader for PS1 CD-ROM images
+- * Session 24-25 - Validation-first approach
+- *
+- * Features:
+- * - Open ISO/BIN file
+- * - Read sectors by LBA
+- * - Parse ISO9660 filesystem
+- * - List files in directory
+- * - Read file contents by path
+- */
+-
+-namespace PS1 {
+-
+-struct CHDState;
+-
+-/**
+- * Information about a file entry in the ISO filesystem
+- */
+-struct ISOFileEntry {
+-    std::string name;       // Filename (without version suffix)
+-    uint32_t lba;           // Logical Block Address (sector number)
+-    uint32_t size;          // File size in bytes
+-    bool is_directory;      // True if this is a directory
+-};
+-
+-/**
+- * Root directory information from Primary Volume Descriptor
+- */
+-struct RootDirectoryInfo {
+-    uint32_t lba;           // LBA of root directory data
+-    uint32_t size;          // Size of root directory in bytes
+-};
+-
+-/**
+- * A CD track parsed from the .cue sheet (or the synthesized single data
+- * track for a bare .bin/.iso). Multi-track discs can carry a
+- * Red Book CD-DA audio track after the data track; the CD model's TOC
+- * commands (GetTN/GetTD) must report them.
+- */
+-struct CDTrack {
+-    int      number;     // 1-based track number
+-    bool     is_audio;   // true = CD-DA audio (Red Book); false = data
+-    uint32_t start_lba;  // disc-relative start LBA (cue INDEX 01; track 1 = 0).
+-                         // Single-FILE cues: equals the .bin-relative INDEX time.
+-                         // Multi-FILE cues (redump "(Track N).bin" dumps): the
+-                         // owning file's first disc sector plus its INDEX time.
+-                         // Either way, plus every cue PREGAP/POSTGAP before it
+-                         // (gaps the dump does not store).
+-    uint32_t pregap_lba; // disc-relative start of the track's pregap: its cue
+-                         // PREGAP if any, else INDEX 00, else INDEX 01
+-};
+-
+-/**
+- * One BINARY file backing a contiguous run of disc sectors. Single-file
+- * images have exactly one segment; redump-style dumps have one per track
+- * file, concatenated in cue order to form the flat disc-sector space that
+- * ReadSector()/ReadRawSector() address.
+- */
+-struct BinSegment {
+-    std::string   path;          // resolved on-disk path
+-    std::ifstream file;          // opened for the reader's lifetime
+-    uint32_t      start_lba;     // disc sector of this file's first stored sector
+-    uint32_t      sector_count;  // sectors stored in this file
+-    bool          raw;           // 2352-byte raw sectors (BIN) vs 2048 (ISO)
+-};
+-
+-/**
+- * A contiguous run of disc sectors. A stored span maps onto sectors of one
+- * BinSegment; a virtual span is a cue PREGAP/POSTGAP that the dump does not
+- * store and that reads back as zero (silence), as the CHD path already does.
+- * Without PREGAP/POSTGAP lines each file is exactly one stored span, so the
+- * disc layout is the plain concatenation of the files.
+- */
+-struct BinSpan {
+-    uint32_t disc_start;    // first disc-relative sector
+-    uint32_t sector_count;
+-    int      segment;       // index into segments_, or -1 for a virtual gap
+-    uint32_t file_sector;   // first sector within the segment's file
+-};
+-
+-class ISOReader {
+-public:
+-    /**
+-     * Constructor
+-     */
+-    ISOReader();
+-
+-    /**
+-     * Destructor - ensures file is closed
+-     */
+-    ~ISOReader();
+-
+-    /**
+-     * Open an ISO/BIN file for reading
+-     * @param filename Path to .iso, .bin, .img, .car, .cue, or .chd file
+-     * @return true if opened successfully, false otherwise
+-     */
+-    bool Open(const std::string& filename);
+-
+-    /**
+-     * Sector geometry of the first stored file behind an image, decided the
+-     * same way Open() decides it: a .cue's TRACK mode is authoritative; a bare
+-     * file is raw when sector 0 starts with the CD sync pattern. File length
+-     * is never the evidence (raw dumps can be a multiple of 2048).
+-     * @param path .cue or bare .bin/.iso/.img
+-     * @param raw  set to true for 2352-byte raw sectors, false for 2048
+-     * @return false when the image cannot be opened or its geometry is not
+-     *         mountable (conflicting or MODE2/2336 track modes)
+-     */
+-    static bool FirstFileIsRaw(const std::string& path, bool* raw);
+-
+-    /**
+-     * Close the currently open file
+-     */
+-    void Close();
+-
+-    /**
+-     * Read a single sector from the ISO
+-     * @param lba Logical Block Address (sector number)
+-     * @param buffer Buffer to read into (must be at least 2048 bytes)
+-     * @return true if read successfully, false otherwise
+-     */
+-    bool ReadSector(uint32_t lba, uint8_t* buffer);
+-
+-    /**
+-     * Read a raw 2352-byte sector from a BIN image.
+-     * @param lba Logical Block Address (sector number)
+-     * @param buffer Buffer to read into (must be at least 2352 bytes)
+-     * @return true if the image stores raw sectors and read succeeded
+-     */
+-    bool ReadRawSector(uint32_t lba, uint8_t* buffer);
+-
+-    /**
+-     * Read generated or SBI-replacement subchannel Q for a disc LBA.
+-     * SBI records intentionally carry invalid CRC data; valid is false for
+-     * those sectors so the CD controller can retain its last valid Q packet.
+-     */
+-    bool ReadSubChannelQ(uint32_t lba, uint8_t* buffer, bool* valid) const;
+-    bool HasSubChannelReplacements() const { return !subq_replacements_.empty(); }
+-
+-    /**
+-     * Check if a file is currently open
+-     * @return true if file is open
+-     */
+-    bool IsOpen() const;
+-
+-    /**
+-     * Get volume ID from Primary Volume Descriptor
+-     * @return Volume ID string (disc name)
+-     */
+-    std::string GetVolumeID() const;
+-
+-    /**
+-     * Get the resolved path to the BIN file (set after Open())
+-     */
+-    std::string GetBinPath() const;
+-
+-    /**
+-     * Get number of addressable sectors in the mounted image.
+-     * Raw BIN images count 2352-byte sectors; cooked ISO images count 2048-byte sectors.
+-     */
+-    uint32_t GetSectorCount();
+-
+-    /**
+-     * CD-track TOC accessors (multi-track .cue support).
+-     * TrackCount() is >= 1 (a bare image synthesizes one data track).
+-     * TrackStartLBA(n)/TrackPregapLBA(n)/TrackIsAudio(n) take a 1-based track number.
+-     */
+-    int      TrackCount() const;
+-    uint32_t TrackStartLBA(int track) const;
+-    uint32_t TrackPregapLBA(int track) const;
+-    bool     TrackIsAudio(int track) const;
+-
+-    /**
+-     * Get root directory information
+-     * @return RootDirectoryInfo containing LBA and size
+-     */
+-    RootDirectoryInfo GetRootDirectory() const;
+-
+-    /**
+-     * List all files in a directory
+-     * @param path Directory path (empty string = root directory)
+-     * @return Vector of ISOFileEntry for all files/subdirectories
+-     */
+-    std::vector<ISOFileEntry> ListFiles(const std::string& path = "");
+-
+-    /**
+-     * Find a file by name in the root directory
+-     * @param path Filename to search for (e.g., "SYSTEM.CNF" or "SCUS_942.36")
+-     * @param entry Output ISOFileEntry to populate with file info
+-     * @return true if found, false if not found
+-     */
+-    bool FindFile(const std::string& path, ISOFileEntry& entry);
+-
+-    /**
+-     * Read entire file contents into buffer
+-     * @param path Filename to read
+-     * @param buffer Buffer to read into (must be large enough)
+-     * @param max_size Maximum bytes to read (buffer size limit)
+-     * @return Number of bytes read (0 if error or file not found)
+-     */
+-    size_t ReadFile(const std::string& path, uint8_t* buffer, size_t max_size);
+-
+-    /**
+-     * Get file size without reading data
+-     * @param path Filename to query
+-     * @return File size in bytes (0 if file not found)
+-     */
+-    size_t GetFileSize(const std::string& path);
+-
+-private:
+-    /**
+-     * Parse the Primary Volume Descriptor (sector 16)
+-     * Extracts volume ID and root directory information
+-     * @return true if parsed successfully, false otherwise
+-     */
+-    bool ParseVolumeDescriptor();
+-
+-    /**
+-     * Helper: Read a 32-bit value in both-endian format (733 format)
+-     * @param data Pointer to 8-byte both-endian value
+-     * @return 32-bit value (reads little-endian half)
+-     */
+-    uint32_t Read733(const uint8_t* data) const;
+-
+-    /**
+-     * Helper: Parse a directory record from raw sector data
+-     * @param data Pointer to directory record data
+-     * @param entry Output ISOFileEntry to populate
+-     * @return true if parsed successfully, false if invalid record
+-     */
+-    bool ParseDirectoryRecord(const uint8_t* data, ISOFileEntry& entry) const;
+-
+-    /**
+-     * Helper: List files in a directory given its LBA and size
+-     * Used for subdirectory navigation
+-     */
+-    std::vector<ISOFileEntry> ListFilesByLBA(uint32_t lba, uint32_t dir_size);
+-
+-    /**
+-     * Helper: find the span containing a disc-relative LBA.
+-     * @return span pointer, or nullptr when lba is past the disc end
+-     */
+-    const BinSpan* SpanForLBA(uint32_t lba) const;
+-
+-    bool LoadSBICompanion(const std::string& image_path);
+-
+-    bool is_open_;
+-    std::string volume_id_;
+-    std::string bin_path_;          // first (data) segment; kept for callers
+-    RootDirectoryInfo root_dir_;
+-    std::vector<CDTrack> tracks_;   // from the .cue TOC; >=1 entry after Open()
+-    std::vector<BinSegment> segments_;  // cue FILE entries in disc order; >=1 after Open()
+-    std::vector<BinSpan> spans_;        // disc layout over segments_ + cue gaps
+-    uint32_t disc_sector_count_ = 0;    // BIN/CUE: end of the last span
+-    std::unique_ptr<CHDState> chd_; // present only for a directly mounted CHD
+-    std::unordered_map<uint32_t, std::array<uint8_t, 12>> subq_replacements_;
+-};
+-
+-} // namespace PS1
++#pragma once
++
++#include <cstdint>
++#include <array>
++#include <string>
++#include <fstream>
++#include <memory>
++#include <unordered_map>
++#include <vector>
++
++/**
++ * ISO/BIN/CUE Reader for PS1 CD-ROM images
++ * Session 24-25 - Validation-first approach
++ *
++ * Features:
++ * - Open ISO/BIN file
++ * - Read sectors by LBA
++ * - Parse ISO9660 filesystem
++ * - List files in directory
++ * - Read file contents by path
++ */
++
++namespace PS1 {
++
++struct CHDState;
++struct NativeCDState;
++
++/**
++ * Information about a file entry in the ISO filesystem
++ */
++struct ISOFileEntry {
++    std::string name;       // Filename (without version suffix)
++    uint32_t lba;           // Logical Block Address (sector number)
++    uint32_t size;          // File size in bytes
++    bool is_directory;      // True if this is a directory
++};
++
++/**
++ * Root directory information from Primary Volume Descriptor
++ */
++struct RootDirectoryInfo {
++    uint32_t lba;           // LBA of root directory data
++    uint32_t size;          // Size of root directory in bytes
++};
++
++/**
++ * A CD track parsed from the .cue sheet (or the synthesized single data
++ * track for a bare .bin/.iso). Multi-track discs can carry a
++ * Red Book CD-DA audio track after the data track; the CD model's TOC
++ * commands (GetTN/GetTD) must report them.
++ */
++struct CDTrack {
++    int      number;     // 1-based track number
++    bool     is_audio;   // true = CD-DA audio (Red Book); false = data
++    uint32_t start_lba;  // disc-relative start LBA (cue INDEX 01; track 1 = 0).
++                         // Single-FILE cues: equals the .bin-relative INDEX time.
++                         // Multi-FILE cues (redump "(Track N).bin" dumps): the
++                         // owning file's first disc sector plus its INDEX time.
++                         // Either way, plus every cue PREGAP/POSTGAP before it
++                         // (gaps the dump does not store).
++    uint32_t pregap_lba; // disc-relative start of the track's pregap: its cue
++                         // PREGAP if any, else INDEX 00, else INDEX 01
++};
++
++/**
++ * One BINARY file backing a contiguous run of disc sectors. Single-file
++ * images have exactly one segment; redump-style dumps have one per track
++ * file, concatenated in cue order to form the flat disc-sector space that
++ * ReadSector()/ReadRawSector() address.
++ */
++struct BinSegment {
++    std::string   path;          // resolved on-disk path
++    std::ifstream file;          // opened for the reader's lifetime
++    uint32_t      start_lba;     // disc sector of this file's first stored sector
++    uint32_t      sector_count;  // sectors stored in this file
++    bool          raw;           // 2352-byte raw sectors (BIN) vs 2048 (ISO)
++};
++
++/**
++ * A contiguous run of disc sectors. A stored span maps onto sectors of one
++ * BinSegment; a virtual span is a cue PREGAP/POSTGAP that the dump does not
++ * store and that reads back as zero (silence), as the CHD path already does.
++ * Without PREGAP/POSTGAP lines each file is exactly one stored span, so the
++ * disc layout is the plain concatenation of the files.
++ */
++struct BinSpan {
++    uint32_t disc_start;    // first disc-relative sector
++    uint32_t sector_count;
++    int      segment;       // index into segments_, or -1 for a virtual gap
++    uint32_t file_sector;   // first sector within the segment's file
++};
++
++class ISOReader {
++public:
++    /**
++     * Constructor
++     */
++    ISOReader();
++
++    /**
++     * Destructor - ensures file is closed
++     */
++    ~ISOReader();
++
++    /**
++     * Open an ISO/BIN file for reading
++     * @param filename Path to .iso, .bin, .img, .car, .cue, or .chd file
++     * @return true if opened successfully, false otherwise
++     */
++    bool Open(const std::string& filename);
++
++    /**
++     * Sector geometry of the first stored file behind an image, decided the
++     * same way Open() decides it: a .cue's TRACK mode is authoritative; a bare
++     * file is raw when sector 0 starts with the CD sync pattern. File length
++     * is never the evidence (raw dumps can be a multiple of 2048).
++     * @param path .cue or bare .bin/.iso/.img
++     * @param raw  set to true for 2352-byte raw sectors, false for 2048
++     * @return false when the image cannot be opened or its geometry is not
++     *         mountable (conflicting or MODE2/2336 track modes)
++     */
++    static bool FirstFileIsRaw(const std::string& path, bool* raw);
++
++    /**
++     * Close the currently open file
++     */
++    void Close();
++
++    /**
++     * Read a single sector from the ISO
++     * @param lba Logical Block Address (sector number)
++     * @param buffer Buffer to read into (must be at least 2048 bytes)
++     * @return true if read successfully, false otherwise
++     */
++    bool ReadSector(uint32_t lba, uint8_t* buffer);
++
++    /**
++     * Read a raw 2352-byte sector from a BIN image.
++     * @param lba Logical Block Address (sector number)
++     * @param buffer Buffer to read into (must be at least 2352 bytes)
++     * @return true if the image stores raw sectors and read succeeded
++     */
++    bool ReadRawSector(uint32_t lba, uint8_t* buffer);
++
++    /**
++     * Read generated or SBI-replacement subchannel Q for a disc LBA.
++     * SBI records intentionally carry invalid CRC data; valid is false for
++     * those sectors so the CD controller can retain its last valid Q packet.
++     */
++    bool ReadSubChannelQ(uint32_t lba, uint8_t* buffer, bool* valid) const;
++    bool HasSubChannelReplacements() const { return !subq_replacements_.empty(); }
++
++    /**
++     * Check if a file is currently open
++     * @return true if file is open
++     */
++    bool IsOpen() const;
++
++    /**
++     * Get volume ID from Primary Volume Descriptor
++     * @return Volume ID string (disc name)
++     */
++    std::string GetVolumeID() const;
++
++    /**
++     * Get the resolved path to the BIN file (set after Open())
++     */
++    std::string GetBinPath() const;
++
++    /**
++     * Get number of addressable sectors in the mounted image.
++     * Raw BIN images count 2352-byte sectors; cooked ISO images count 2048-byte sectors.
++     */
++    uint32_t GetSectorCount();
++
++    /**
++     * CD-track TOC accessors (multi-track .cue support).
++     * TrackCount() is >= 1 (a bare image synthesizes one data track).
++     * TrackStartLBA(n)/TrackPregapLBA(n)/TrackIsAudio(n) take a 1-based track number.
++     */
++    int      TrackCount() const;
++    uint32_t TrackStartLBA(int track) const;
++    uint32_t TrackPregapLBA(int track) const;
++    bool     TrackIsAudio(int track) const;
++
++    /**
++     * Get root directory information
++     * @return RootDirectoryInfo containing LBA and size
++     */
++    RootDirectoryInfo GetRootDirectory() const;
++
++    /**
++     * List all files in a directory
++     * @param path Directory path (empty string = root directory)
++     * @return Vector of ISOFileEntry for all files/subdirectories
++     */
++    std::vector<ISOFileEntry> ListFiles(const std::string& path = "");
++
++    /**
++     * Find a file by name in the root directory
++     * @param path Filename to search for (e.g., "SYSTEM.CNF" or "SCUS_942.36")
++     * @param entry Output ISOFileEntry to populate with file info
++     * @return true if found, false if not found
++     */
++    bool FindFile(const std::string& path, ISOFileEntry& entry);
++
++    /**
++     * Read entire file contents into buffer
++     * @param path Filename to read
++     * @param buffer Buffer to read into (must be large enough)
++     * @param max_size Maximum bytes to read (buffer size limit)
++     * @return Number of bytes read (0 if error or file not found)
++     */
++    size_t ReadFile(const std::string& path, uint8_t* buffer, size_t max_size);
++
++    /**
++     * Get file size without reading data
++     * @param path Filename to query
++     * @return File size in bytes (0 if file not found)
++     */
++    size_t GetFileSize(const std::string& path);
++
++private:
++    /**
++     * Parse the Primary Volume Descriptor (sector 16)
++     * Extracts volume ID and root directory information
++     * @return true if parsed successfully, false otherwise
++     */
++    bool ParseVolumeDescriptor();
++
++    /**
++     * Helper: Read a 32-bit value in both-endian format (733 format)
++     * @param data Pointer to 8-byte both-endian value
++     * @return 32-bit value (reads little-endian half)
++     */
++    uint32_t Read733(const uint8_t* data) const;
++
++    /**
++     * Helper: Parse a directory record from raw sector data
++     * @param data Pointer to directory record data
++     * @param entry Output ISOFileEntry to populate
++     * @return true if parsed successfully, false if invalid record
++     */
++    bool ParseDirectoryRecord(const uint8_t* data, ISOFileEntry& entry) const;
++
++    /**
++     * Helper: List files in a directory given its LBA and size
++     * Used for subdirectory navigation
++     */
++    std::vector<ISOFileEntry> ListFilesByLBA(uint32_t lba, uint32_t dir_size);
++
++    /**
++     * Helper: find the span containing a disc-relative LBA.
++     * @return span pointer, or nullptr when lba is past the disc end
++     */
++    const BinSpan* SpanForLBA(uint32_t lba) const;
++
++    bool LoadSBICompanion(const std::string& image_path);
++    bool OpenNativeCD(const std::string& uri);
++
++    bool is_open_;
++    std::string volume_id_;
++    std::string bin_path_;          // first (data) segment; kept for callers
++    RootDirectoryInfo root_dir_;
++    std::vector<CDTrack> tracks_;   // from the .cue TOC; >=1 entry after Open()
++    std::vector<BinSegment> segments_;  // cue FILE entries in disc order; >=1 after Open()
++    std::vector<BinSpan> spans_;        // disc layout over segments_ + cue gaps
++    uint32_t disc_sector_count_ = 0;    // BIN/CUE: end of the last span
++    std::unique_ptr<CHDState> chd_; // present only for a directly mounted CHD
++    std::unique_ptr<NativeCDState> native_cd_;
++    std::unordered_map<uint32_t, std::array<uint8_t, 12>> subq_replacements_;
++};
++
++} // namespace PS1
+diff --git a/runtime/include/psx_disc_tray.h b/runtime/include/psx_disc_tray.h
+index 08a33324..4f78e968 100644
+--- a/runtime/include/psx_disc_tray.h
++++ b/runtime/include/psx_disc_tray.h
+@@ -36,7 +36,8 @@ typedef enum PsxDiscTrayOrigin {
+     PSX_DISC_TRAY_ORIGIN_DEBUG_SELECT,      /* debug server disc_select */
+     PSX_DISC_TRAY_ORIGIN_DEBUG_REINSERT,    /* debug server cd_reinsert */
+     PSX_DISC_TRAY_ORIGIN_DEBUG_MENU,        /* debug server disc_menu accept */
+-    PSX_DISC_TRAY_ORIGIN_AUTO               /* verified title request */
++    PSX_DISC_TRAY_ORIGIN_AUTO,              /* verified title request */
++    PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC      /* audio media; keep boot preference */
+ } PsxDiscTrayOrigin;
+ 
+ typedef enum PsxDiscTrayResult {
+diff --git a/runtime/src/cdrom.c b/runtime/src/cdrom.c
+index de87a8c0..264f0e32 100644
+--- a/runtime/src/cdrom.c
++++ b/runtime/src/cdrom.c
+@@ -13,6 +13,7 @@
+ #include "cdrom.h"
+ #include "cdrom_irq.h"
+ #include "cdrom_lid.h"
++#include "cdrom_media_id.h"
+ #include "dma.h"
+ #include "spu.h"
+ #include "event_ring.h"
+@@ -756,6 +757,15 @@ static void* iso_handle = NULL;
+ static char s_disc_roster[CDROM_MAX_DISCS][CDROM_DISC_PATH_MAX];
+ static int  s_disc_roster_count;
+ static int  s_disc_selected;  /* 1-based roster entry mounted; 0 = none */
++static char s_mounted_image_path[1024];
++static int mounted_audio_only(void) {
++    const int count = iso_handle ? iso_cdda_track_count(iso_handle) : 0;
++    if (count < 1) return 0;
++    for (int track = 1; track <= count; ++track)
++        if (!iso_cdda_track_is_audio(iso_handle, track)) return 0;
++    return 1;
++}
++const char *cdrom_mounted_path(void) { return iso_handle ? s_mounted_image_path : NULL; }
+ 
+ static uint8_t last_valid_subq[12];
+ static int last_valid_subq_available;
+@@ -2178,6 +2188,13 @@ static void exec_command(uint8_t cmd) {
+             set_irq(CDIRQ_ERROR);
+             break;
+         }
++        if (mounted_audio_only() && !(mode_reg & 1u)) {
++            stop_read_stream();
++            response_push(stat_reg | CDSTAT_ERROR);
++            response_push(0x40);
++            set_irq(CDIRQ_ERROR);
++            break;
++        }
+         if (read_continues_current_stream()) break;   /* ACKed inside */
+         start_read_stream(cmd);
+         response_push(stat_reg);
+@@ -2494,6 +2511,13 @@ static void exec_command(uint8_t cmd) {
+             set_irq(CDIRQ_ERROR);
+             break;
+         }
++        if (mounted_audio_only() && !(mode_reg & 1u)) {
++            stop_read_stream();
++            response_push(stat_reg | CDSTAT_ERROR);
++            response_push(0x40);
++            set_irq(CDIRQ_ERROR);
++            break;
++        }
+         if (read_continues_current_stream()) break;   /* ACKed inside */
+         start_read_stream(cmd);
+         response_push(stat_reg);
+@@ -2623,15 +2647,11 @@ static void process_pending(uint32_t cycles) {
+             response_push(0x80);
+             set_irq(CDIRQ_ERROR);
+         } else {
+-            response_push(stat_reg);
+-            response_push(0x00);
+-            response_push(0x20);
+-            response_push(0x00);
+-            response_push(disc_scex[0]);
+-            response_push(disc_scex[1]);
+-            response_push(disc_scex[2]);
+-            response_push(disc_scex[3]);
+-            set_irq(CDIRQ_COMPLETE);
++            const int audio_only = mounted_audio_only();
++            uint8_t reply[8];
++            cdrom_media_id(stat_reg, audio_only, disc_scex, reply);
++            for (int i = 0; i < 8; ++i) response_push(reply[i]);
++            set_irq(audio_only ? CDIRQ_ERROR : CDIRQ_COMPLETE);
+         }
+         fire_cdrom_irq();
+         break;
+@@ -2823,6 +2843,7 @@ static void present_pending_dataready(void) {
+ }
+ 
+ void cdrom_init(const char* cue_path) {
++    snprintf(s_mounted_image_path, sizeof s_mounted_image_path, "%s", cue_path ? cue_path : "");
+     memset(param_fifo, 0, sizeof(param_fifo));
+     memset(response_fifo, 0, sizeof(response_fifo));
+     memset(s_sector_ring, 0, sizeof(s_sector_ring));
+@@ -3793,6 +3814,7 @@ int cdrom_disc_select(int index_1based) {
+         s_disc_selected = 0;
+         return 0;
+     }
++    snprintf(s_mounted_image_path, sizeof s_mounted_image_path, "%s", path);
+ 
+     last_valid_subq_available = 0;
+     subq_replacements_active = iso_has_subq_replacements(iso_handle);
+diff --git a/runtime/src/iso_reader.cpp b/runtime/src/iso_reader.cpp
+index 5c6c5cfb..26114e39 100644
+--- a/runtime/src/iso_reader.cpp
++++ b/runtime/src/iso_reader.cpp
+@@ -7,8 +7,72 @@
+ #include <cstring>
+ #include <cstdio>
+ #include <limits>
++#ifdef _WIN32
++#define WIN32_LEAN_AND_MEAN
++#define NOMINMAX
++#include <windows.h>
++#include <winioctl.h>
++#include <ntddcdrm.h>
++#endif
+ 
+ namespace PS1 {
++struct NativeCDState {
++#ifdef _WIN32
++    HANDLE handle = INVALID_HANDLE_VALUE;
++    ~NativeCDState() { if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle); }
++#endif
++};
++
++bool ISOReader::OpenNativeCD(const std::string& uri) {
++#ifdef _WIN32
++    if (uri.size() != 9 || uri.compare(0, 7, "cdda://") || uri[8] != ':' ||
++        uri[7] < 'A' || uri[7] > 'Z') return false;
++    wchar_t root[] = L"D:\\";
++    root[0] = static_cast<wchar_t>(uri[7]);
++    if (GetDriveTypeW(root) != DRIVE_CDROM) return false;
++    wchar_t device[] = L"\\\\.\\D:";
++    device[4] = root[0];
++    auto cd = std::make_unique<NativeCDState>();
++    cd->handle = CreateFileW(device, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
++                             nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
++    if (cd->handle == INVALID_HANDLE_VALUE) return false;
++    CDROM_TOC toc{};
++    DWORD returned = 0;
++    if (!DeviceIoControl(cd->handle, IOCTL_CDROM_READ_TOC, nullptr, 0,
++                         &toc, sizeof toc, &returned, nullptr) ||
++        toc.FirstTrack != 1 || toc.LastTrack < 1 || toc.LastTrack > 99) return false;
++    const int count = toc.LastTrack;
++    if (returned < offsetof(CDROM_TOC, TrackData) + (count + 1) * sizeof(TRACK_DATA)) return false;
++    auto lba = [](const UCHAR* msf) -> uint32_t {
++        const uint32_t frames = (static_cast<uint32_t>(msf[1]) * 60 + msf[2]) * 75 + msf[3];
++        return frames >= 150 ? frames - 150 : 0;
++    };
++    const uint32_t sectors = lba(toc.TrackData[count].Address);
++    if (!sectors || toc.TrackData[count].TrackNumber != 0xAA) return false;
++    std::vector<CDTrack> tracks;
++    bool audio = false;
++    uint32_t previous = 0;
++    for (int i = 0; i < count; ++i) {
++        const auto& entry = toc.TrackData[i];
++        const uint32_t start = lba(entry.Address);
++        if (entry.TrackNumber != i + 1 || start < previous || start >= sectors) return false;
++        const bool is_audio = (entry.Control & 4) == 0;
++        audio |= is_audio;
++        tracks.push_back({i + 1, is_audio, start, start});
++        previous = start;
++    }
++    if (!audio) return false;
++    tracks_ = std::move(tracks);
++    disc_sector_count_ = sectors;
++    bin_path_ = uri;
++    native_cd_ = std::move(cd);
++    is_open_ = true;
++    return true;
++#else
++    (void)uri;
++    return false;
++#endif
++}
+ 
+ // PS1 CD-ROM sector size (Mode 2, Form 1 user data)
+ constexpr size_t SECTOR_SIZE = 2048;
+@@ -198,6 +262,7 @@ ISOReader::~ISOReader() {
+ bool ISOReader::Open(const std::string& filename) {
+     // Close any previously opened image (also resets tracks/segments)
+     Close();
++    if (filename.rfind("cdda://", 0) == 0) return OpenNativeCD(filename);
+ 
+     // Check if file exists
+     if (!std::filesystem::exists(filename)) {
+@@ -494,6 +559,7 @@ bool ISOReader::FirstFileIsRaw(const std::string& path, bool* raw) {
+ }
+ 
+ void ISOReader::Close() {
++    native_cd_.reset();
+     chd_.reset();
+     for (BinSegment& seg : segments_) {
+         if (seg.file.is_open()) {
+@@ -600,6 +666,7 @@ bool ISOReader::ReadSector(uint32_t lba, uint8_t* buffer) {
+     if (!is_open_ || !buffer) {
+         return false;
+     }
++    if (native_cd_) return false;
+ 
+     if (chd_) {
+         uint8_t raw[RAW_SECTOR_SIZE];
+@@ -665,6 +732,20 @@ bool ISOReader::ReadRawSector(uint32_t lba, uint8_t* buffer) {
+     if (!is_open_ || !buffer) {
+         return false;
+     }
++#ifdef _WIN32
++    if (native_cd_) {
++        if (lba >= disc_sector_count_) return false;
++        RAW_READ_INFO request{};
++        // RAW_READ_INFO uses a 2048-byte logical disk offset (Microsoft DDI).
++        request.DiskOffset.QuadPart = static_cast<LONGLONG>(lba) * 2048;
++        request.SectorCount = 1;
++        request.TrackMode = CDDA;
++        DWORD returned = 0;
++        return DeviceIoControl(native_cd_->handle, IOCTL_CDROM_RAW_READ,
++            &request, sizeof request, buffer, RAW_SECTOR_SIZE, &returned, nullptr) &&
++            returned == RAW_SECTOR_SIZE;
++    }
++#endif
+ 
+     if (chd_) return read_chd_raw(*chd_, lba, buffer, nullptr);
+ 
+diff --git a/runtime/src/psx_disc_tray.c b/runtime/src/psx_disc_tray.c
+index b155004f..3e280437 100644
+--- a/runtime/src/psx_disc_tray.c
++++ b/runtime/src/psx_disc_tray.c
+@@ -102,7 +102,7 @@ int psx_disc_tray_cycle(int disc_1based, int origin)
+             /* cdrom_disc_select re-scoped savestates to the new disc; the slot
+              * browser caches thumbnails from the old scope. */
+             psx_savestate_menu_note_slots_changed();
+-            if (changed && s_hook)
++            if (changed && s_hook && origin != PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC)
+                 s_hook(s_hook_ctx, disc_1based,
+                        cdrom_disc_roster_path(disc_1based));
+         }
+@@ -145,6 +145,7 @@ const char *psx_disc_tray_origin_name(int origin)
+     case PSX_DISC_TRAY_ORIGIN_DEBUG_REINSERT:  return "debug_reinsert";
+     case PSX_DISC_TRAY_ORIGIN_DEBUG_MENU:      return "debug_menu";
+     case PSX_DISC_TRAY_ORIGIN_AUTO:            return "auto";
++    case PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC:   return "session_music";
+     default:                                   return "unknown";
+     }
+ }
+diff --git a/runtime/tests/test_cdrom_sector_fifo.c b/runtime/tests/test_cdrom_sector_fifo.c
+index 6cd15400..73b49546 100644
+--- a/runtime/tests/test_cdrom_sector_fifo.c
++++ b/runtime/tests/test_cdrom_sector_fifo.c
+@@ -5,6 +5,7 @@
+ uint32_t i_stat, g_debug_current_func_addr, g_debug_last_store_pc;
+ uint64_t s_frame_count, psx_cycle_count;
+ static int test_dma_active;
++static int test_audio_only;
+ static int test_raw_fail, test_raw_bad_header, test_raw_bad_copy;
+ static int test_copy_result = 1, test_copy_calls;
+ static uint8_t test_raw_mode = 2, test_submode = 8;
+@@ -25,6 +26,7 @@ int iso_read_raw_sector(void* h, uint32_t lba, uint8_t* out, int size) {
+ int iso_read_sector(void* h,uint32_t lba,uint8_t* out,int size) {(void)h;memset(out,(unsigned char)lba,size);return 1;}
+ 
+ static void setup(void) {
++    test_audio_only = 0;
+     test_dma_active = 0;
+     test_raw_fail = test_raw_bad_header = test_raw_bad_copy = 0;
+     test_raw_mode = 2; test_submode = 8;
+@@ -353,7 +355,31 @@ static void snapshot_stream_identity(void) {
+     CHECK(cdrom_get_stream_start_lba()==-1);
+ }
+ 
++static void audio_media_commands(void) {
++    for (int command = 0x06; command <= 0x1B; command += 0x15) {
++        setup(); test_audio_only = 1; mode_reg = 0;
++        exec_command((uint8_t)command);
++        CHECK(!reading && irq_flag == CDIRQ_ERROR);
++        CHECK(cdrom_read(0x1F801801) == (CDSTAT_MOTOR | CDSTAT_ERROR));
++        CHECK(cdrom_read(0x1F801801) == 0x40);
++        ack(); mode_reg = 1;
++        exec_command((uint8_t)command);
++        CHECK(reading && irq_flag == CDIRQ_ACK);
++    }
++    setup(); test_audio_only = 1;
++    exec_command(0x1A);
++    CHECK(irq_flag == CDIRQ_ACK);
++    (void)cdrom_read(0x1F801801); ack();
++    psx_cycle_count += 33868;
++    process_pending(33868);
++    CHECK(irq_flag == CDIRQ_ERROR);
++    CHECK(cdrom_read(0x1F801801) == (CDSTAT_MOTOR | CDSTAT_IDERROR));
++    CHECK(cdrom_read(0x1F801801) == 0x90);
++    for (int i = 0; i < 6; ++i) CHECK(cdrom_read(0x1F801801) == 0);
++}
++
+ int main(void) {
++    audio_media_commands();
+     resident_header_cursor_and_restore();
+     resident_declines_atomically();
+     pause_read_resumes_position();
+@@ -381,7 +407,7 @@ uint32_t iso_cdda_track_start_lba(void* h,int track) {(void)h;(void)track;return
+ uint32_t iso_cdda_track_pregap_lba(void* h,int track) {(void)h;(void)track;return 0;}
+ int iso_cdda_track_count(void* h) {(void)h;return 1;}
+ uint32_t iso_cdda_sector_count(void* h) {(void)h;return 1000;}
+-int iso_cdda_track_is_audio(void* h,int track) {(void)h;(void)track;return 0;}
++int iso_cdda_track_is_audio(void* h,int track) {(void)h;(void)track;return test_audio_only;}
+ uint32_t iso_sector_count(void* h) {(void)h;return 1000;}
+ int iso_track_count(void* h) {(void)h;return 1;}
+ void event_ring_record_aux(uint16_t k,uint8_t d,uint32_t a) {(void)k;(void)d;(void)a;}
+diff --git a/runtime/tests/test_runtime_disc_menu.c b/runtime/tests/test_runtime_disc_menu.c
+index 009f327c..1e2e678b 100644
+--- a/runtime/tests/test_runtime_disc_menu.c
++++ b/runtime/tests/test_runtime_disc_menu.c
+@@ -106,6 +106,13 @@ int main(void) {
+         assert(events[n % PSX_DISC_TRAY_LOG_CAP].result == PSX_DISC_TRAY_ERR_RANGE);
+     }
+     count = 1;
++    /* Music changes the live media but never the next boot image preference. */
++    count = 2; mounted = 1; persisted = 1;
++    assert(psx_disc_tray_cycle(2, PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC) == PSX_DISC_TRAY_OK);
++    assert(mounted == 2 && persisted == 1);
++    assert(psx_disc_tray_cycle(1, PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC) == PSX_DISC_TRAY_OK);
++    assert(mounted == 1 && persisted == 1);
++    count = 1;
+     psx_runtime_menu_init();
+     assert(!psx_runtime_menu_open());
+     assert(psx_disc_tray_cycle(1, PSX_DISC_TRAY_ORIGIN_MENU) == PSX_DISC_TRAY_ERR_NO_ROSTER);
+diff --git a/runtime/include/cdrom_media_id.h b/runtime/include/cdrom_media_id.h
+new file mode 100644
+--- /dev/null
++++ b/runtime/include/cdrom_media_id.h
+@@ -0,0 +1,15 @@
++#ifndef PSX_CDROM_MEDIA_ID_H
++#define PSX_CDROM_MEDIA_ID_H
++#include <stdint.h>
++/* GetID second response. Audio media is unlicensed: INT5, flag 0x90,
++ * no SCEx region. Data-disc behavior remains the existing licensed response.
++ * Reference: psx-spx, CDROM Drive / GetID command 1Ah. */
++static inline void cdrom_media_id(uint8_t status, int audio_only,
++                                 const uint8_t region[4], uint8_t out[8]) {
++    out[0] = (uint8_t)(status | (audio_only ? 0x08 : 0));
++    out[1] = audio_only ? 0x90 : 0;
++    out[2] = audio_only ? 0 : 0x20;
++    out[3] = 0;
++    for (int i = 0; i < 4; ++i) out[4 + i] = audio_only ? 0 : (uint8_t)region[i];
++}
++#endif

@@ -1,0 +1,105 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index fc1925f..d2b36f4 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -1733,11 +1733,14 @@ void eyebrow_tracked(const char* s) {
+     // letter-spaced text
+     float x = p.x + px(10.0f);
+     ImU32 c = imcol(th.accent2);
+-    char buf[2] = {0,0};
+-    for (const char* q = s; *q; ++q) {
+-        buf[0] = *q;
+-        dl->AddText(ImVec2(x, p.y), c, buf);
+-        x += ImGui::CalcTextSize(buf).x + px(2.2f);
++    for (const char* q = s; *q;) {
++        // Keep a complete UTF-8 code point when spacing localized headings.
++        // Splitting bytes produced two replacement glyphs for accented letters.
++        const char* end = q + 1;
++        while ((static_cast<unsigned char>(*end) & 0xC0u) == 0x80u) ++end;
++        dl->AddText(ImVec2(x, p.y), c, q, end);
++        x += ImGui::CalcTextSize(q, end).x + px(2.2f);
++        q = end;
+     }
+     ImGui::Dummy(ImVec2(x - p.x, h));
+     ImGui::Spacing();
+diff --git a/src/common/launcher_i18n.cpp b/src/common/launcher_i18n.cpp
+index 91a6c97..b489ab4 100644
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -11,6 +11,65 @@ struct LauncherI18nEntry {
+     const char* localized;
+ };
+ 
++static const LauncherI18nEntry kBrazilianPortuguese[] = {
++    {"Settings", "Configurações"}, {"Mods", "Melhorias"},
++    {"Assist Tools", "Assistência"}, {"Credits", "Créditos"},
++    {"< Back", "< Voltar"}, {"General", "Geral"},
++    {"PLAY", "JOGAR"}, {"RESUME", "CONTINUAR"}, {"QUIT GAME", "SAIR DO JOGO"},
++    {"Save", "Salvar"}, {"Cancel", "Cancelar"}, {"Clear", "Limpar"},
++    {"Edit", "Editar"}, {"Browse...", "Procurar..."},
++    {"Browse", "Procurar"}, {"Configure", "Configurar"},
++    {"Enabled", "Ativado"}, {"Disabled", "Desativado"},
++    {"On", "Ligado"}, {"Off", "Desligado"},
++    {"Enable", "Ativar"}, {"Disable", "Desativar"},
++    {"Disable all", "Desativar tudo"}, {"None", "Nenhum"},
++    {"Restore Defaults", "Restaurar padrões"},
++    {"Skip launcher on boot", "Iniciar diretamente no jogo"},
++    {"Files", "Arquivos"}, {"File", "Arquivo"}, {"Folder", "Pasta"},
++    {"Select file", "Selecionar arquivo"}, {"Select folder", "Selecionar pasta"},
++    {"Change file", "Trocar arquivo"}, {"Change folder", "Trocar pasta"},
++    {"Not selected", "Não selecionado"}, {"(optional)", "(opcional)"},
++    {"Configuration", "Configuração"},
++    {"Disc", "Disco"}, {"Disc Selection", "Seleção do disco"},
++    {"No disc selected", "Nenhum disco selecionado"},
++    {"Disc verified", "Disco verificado"}, {"Memory Card", "Cartão de memória"},
++    {"Tracks", "Faixas"}, {"Region", "Região"},
++    {"Keyboard + Mouse", "Teclado e mouse"}, {"Keyboard", "Teclado"},
++    {"Controller", "Controle"}, {"connected", "conectado"},
++    {"(disconnected)", "(desconectado)"},
++    {"(no gamepad connected)", "(nenhum controle conectado)"},
++    {"PLAYER", "JOGADOR"}, {"CONTROLLER", "CONTROLE"},
++    {"CONTROLLER - PLAYER", "CONTROLE - JOGADOR"},
++    {"Input source", "Dispositivo de entrada"}, {"Deadzone", "Zona morta"},
++    {"Rename Gamepad", "Renomear controle"}, {"Delete Gamepad", "Remover controle"},
++    {"DISPLAY", "VÍDEO"}, {"AUDIO", "ÁUDIO"}, {"HOTKEYS", "ATALHOS"},
++    {"SYSTEM", "SISTEMA"}, {"INPUT", "CONTROLES"},
++    {"CREDITS", "CRÉDITOS"}, {"SAVES", "SALVAMENTOS"},
++    {"LOCALIZATION", "IDIOMA"}, {"ASSIST TOOLS / CHEATS", "ASSISTÊNCIA / TRAPAÇAS"},
++    {"Window scale", "Escala da janela"}, {"Window size", "Tamanho da janela"},
++    {"Fullscreen", "Tela cheia"}, {"Screen layout", "Disposição da tela"},
++    {"Integer scaling", "Escala inteira"}, {"Scaling filter", "Filtro de escala"},
++    {"Linear filtering", "Filtro linear"}, {"Texture filtering", "Filtro de texturas"},
++    {"Internal resolution", "Resolução interna"}, {"Native", "Original"},
++    {"Match display", "Igual ao monitor"}, {"Custom", "Personalizado"},
++    {"Renderer", "Renderizador"}, {"Antialiasing", "Suavização de bordas"},
++    {"Perspective textures", "Correção de perspectiva"},
++    {"Screen model", "Modelo de tela"}, {"Frame interpolation", "Interpolação de quadros"},
++    {"FMV filtering", "Filtro dos vídeos"}, {"Nearest", "Vizinho mais próximo"},
++    {"Bilinear", "Bilinear"}, {"Sharp", "Nítido"}, {"Bicubic", "Bicúbico"},
++    {"Sample rate", "Taxa de amostragem"}, {"Volume", "Volume"},
++    {"Output device", "Dispositivo de saída"}, {"Language", "Idioma"},
++    {"(system default)", "(padrão do sistema)"},
++    {"Use OpenBIOS", "Usar OpenBIOS"},
++    {"Toggle fullscreen", "Alternar tela cheia"},
++    {"Window bigger", "Aumentar janela"}, {"Window smaller", "Diminuir janela"},
++    {"Volume up", "Aumentar volume"}, {"Volume down", "Diminuir volume"},
++    {"FPS readout", "Mostrar FPS"}, {"Toggle renderer", "Trocar renderizador"},
++    {"Open launcher", "Abrir configurações"},
++    {"Save states menu", "Menu de estados salvos"},
++    {"(unbound)", "(sem atalho)"}, {"[ press... ]", "[ pressione... ]"},
++};
++
+ static const LauncherI18nEntry kItalian[] = {
+     {"Settings", "Impostazioni"},
+     {"Mods", "Mod"},
+@@ -231,5 +290,10 @@ const char* launcher_i18n_text(const char* english) {
+         return lookup(kItalian, (int)(sizeof(kItalian) / sizeof(kItalian[0])),
+                       english);
+     }
++    if (std::strcmp(language, "pt-BR") == 0 || std::strcmp(language, "pt-br") == 0) {
++        return lookup(kBrazilianPortuguese,
++                      (int)(sizeof(kBrazilianPortuguese) / sizeof(kBrazilianPortuguese[0])),
++                      english);
++    }
+     return english ? english : "";
+ }

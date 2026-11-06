@@ -1,0 +1,27 @@
+name: Source checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply pinned patches
+        shell: pwsh
+        run: ./scripts/setup.ps1 -SkipSubmodules
+      - name: Unit tests (no ROM)
+        run: python -m unittest discover -s tools/tests -v
+      - name: CD media and FIFO regression tests (no ROM)
+        run: |
+          clang -UNDEBUG -I psxrecomp/runtime/include native/test_media_id.c -o /tmp/vib-media-id
+          /tmp/vib-media-id
+          clang -UNDEBUG -I psxrecomp/runtime/include -I psxrecomp/runtime/src psxrecomp/runtime/tests/test_cdrom_sector_fifo.c -o /tmp/vib-cd-fifo
+          /tmp/vib-cd-fifo
+      - name: Check public source content
+        run: python tools/check_repository.py

@@ -11,19 +11,18 @@ endif()
 
 project(VibRibbonRecomp LANGUAGES C CXX)
 
-# --- Opt-in product surfaces (OFF by default in the framework) -------------
-# Scaffold prompts / flags fill these. Without recomp-ui, PSX_RECOMP_UI is OFF.
-# The wizard (WIZARD_CMAKE_BLOCK / ENABLE_SETUP_WIZARD) is the first-run disc
-# picker; releases are compiled from the committed generated/ C, so it never
-# needs to generate or rebuild anything on a player's machine.
-set(PSX_RECOMP_UI OFF CACHE BOOL
-    "No recomp-ui submodule in this scaffold" FORCE)
+# Native menus use recomp-ui; the original game text remains a separate layer.
+set(PSX_RECOMP_UI ON CACHE BOOL "Vib-Ribbon native settings interface" FORCE)
+set(RECOMP_UI_LANGUAGE "pt-BR" CACHE STRING "Initial native interface language")
 # Full netplay UI -- enable after adding recomp-ui + testing:
 # if(EXISTS "${PSXRECOMP_ROOT}/lib/recomp-net/CMakeLists.txt")
 #     set(PSX_NETPLAY ON CACHE BOOL "..." FORCE)
 # endif()
 # First-run setup wizard -- enable after testing:
 # set(PSX_SETUP_WIZARD ON CACHE BOOL "..." FORCE)
+# Fidelity baseline: keep the recompiled low-level implementations selected.
+set(PSX_EXECUTION_PROFILE "REFERENCE" CACHE STRING "Vib-Ribbon fidelity baseline" FORCE)
+set(PSX_GL_BATCH_IMPL "LLE" CACHE STRING "Baseline GPU batching" FORCE)
 include("${PSXRECOMP_ROOT}/runtime/runtime.cmake")
 
 # This project's own mod catalog. The FRAMEWORK stages it -- together with its
@@ -51,18 +50,50 @@ psxrecomp_add_game_runtime(psx-runtime
     # Committed game C (psxrecomp_cli.py generate; git add generated). Release
     # CI configures with -DPSXRECOMP_REQUIRE_GAME_C=ON so a checkout without
     # it fails instead of building a setup host.
+    GAME_OVERLAY_STATIC_C "${CMAKE_CURRENT_SOURCE_DIR}/generated/overlays_static.c"
     GEN_MARKER "generated/SCES_028.73_dispatch.c"
     GEN_FULL_GLOB "generated/SCES_028.73_full_*.c"
     # CODEGEN_SETUP_SOURCES -- add with recomp-ui / wizard later
 )
 
+# Native music conversion and menu integration.
+add_library(vib-music STATIC native/music_disc.cpp)
+target_compile_features(vib-music PUBLIC cxx_std_17)
+target_include_directories(vib-music PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/native")
+target_link_libraries(vib-music PUBLIC SDL3::SDL3-static)
+target_link_libraries(psx-runtime PRIVATE vib-music)
+target_sources(psx-runtime PRIVATE native/vib_menu.cpp)
+option(VIB_BUILD_TOOLS "Build standalone music/disc diagnostic tools" OFF)
+if(VIB_BUILD_TOOLS)
+add_executable(vib-music-tool native/music_tool.cpp)
+target_link_libraries(vib-music-tool PRIVATE vib-music)
+add_executable(vib-disc-check native/disc_check.cpp
+    "${PSXRECOMP_ROOT}/runtime/src/iso_reader.cpp"
+    "${PSXRECOMP_ROOT}/runtime/src/cue_sheet.cpp")
+target_compile_features(vib-disc-check PRIVATE cxx_std_17)
+target_include_directories(vib-disc-check PRIVATE "${PSXRECOMP_ROOT}/runtime/include"
+    "${PSXRECOMP_ROOT}/recompiler/include")
+target_link_libraries(vib-disc-check PRIVATE chdr-static)
+endif()
+
+# Seed native resolution; keep user choices once a state file exists.
+if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/mods/state.toml")
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/mods")
+    configure_file("config/native-mod-state.toml"
+        "${CMAKE_CURRENT_BINARY_DIR}/mods/state.toml" COPYONLY)
+endif()
+
 # Stage runtime configs next to the exe for direct build/ launches. Only copy
 # files that exist — never fail POST_BUILD when game_options.toml is absent.
 foreach(_PSX_RUNTIME_CONFIG game.toml game_options.toml)
+    set(_VIB_CONFIG_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/${_PSX_RUNTIME_CONFIG}")
+    if(_PSX_RUNTIME_CONFIG STREQUAL "game.toml" AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/game.local.toml")
+        set(_VIB_CONFIG_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/game.local.toml")
+    endif()
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${_PSX_RUNTIME_CONFIG}")
         add_custom_command(TARGET psx-runtime POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${CMAKE_CURRENT_SOURCE_DIR}/${_PSX_RUNTIME_CONFIG}"
+                "${_VIB_CONFIG_SOURCE}"
                 "$<TARGET_FILE_DIR:psx-runtime>/${_PSX_RUNTIME_CONFIG}"
             COMMENT "Staging ${_PSX_RUNTIME_CONFIG}"
             VERBATIM)

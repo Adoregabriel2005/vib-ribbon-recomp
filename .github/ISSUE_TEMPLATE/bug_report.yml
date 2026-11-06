@@ -1,0 +1,22 @@
+name: Problema durante o teste
+description: Relatar um erro com passos para reproduzir
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Versão e computador
+      description: Commit, Windows, CPU, GPU, renderizador e controle.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Como reproduzir
+      description: Passos, resultado esperado e observado. Informe fonte musical e modo manual/Demo.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidência opcional
+      description: Captura ou trecho de log revisado. Não anexe ROM, BIOS, músicas ou dados pessoais.
