@@ -18,7 +18,7 @@ def violation(name: str, data: bytes) -> str | None:
     path = PurePosixPath(name)
     if (path.parts[0] in EXCLUDED_ROOTS or path.parts[0].startswith('build-') or
             path.suffix.lower() in EXCLUDED_SUFFIXES or
-            path.name == 'game.local.toml' or path.name.startswith('.env')):
+            path.name in {'game.local.toml', 'interface-language.txt'} or path.name.startswith('.env')):
         return 'local/generated/media file'
     if len(data) > 5 * 1024 * 1024:
         return 'file larger than 5 MiB; review before publishing'

@@ -1,5 +1,5 @@
 diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
-index fc1925f..d2b36f4 100644
+index fc1925f..9a703d3 100644
 --- a/src/common/backends/imgui/launcher_imgui.cpp
 +++ b/src/common/backends/imgui/launcher_imgui.cpp
 @@ -1733,11 +1733,14 @@ void eyebrow_tracked(const char* s) {
@@ -22,15 +22,170 @@ index fc1925f..d2b36f4 100644
      }
      ImGui::Dummy(ImVec2(x - p.x, h));
      ImGui::Spacing();
+@@ -14275,6 +14278,16 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+                  ImGuiWindowFlags_NoBringToFrontOnFocus);
+     ImGui::PopStyleColor();
+ 
++    // Always discoverable, even when the current interface is unfamiliar.
++    int interface_language = !std::strcmp(launcher_i18n_language(), "pt-BR") ? 1 : 0;
++    static bool interface_language_save_failed = false;
++    ImGui::SetNextItemWidth(px(240));
++    if (ImGui::Combo("Language / Idioma##interface_language", &interface_language,
++                     "English\0Português (Brasil)\0"))
++        interface_language_save_failed = !launcher_i18n_set_language(interface_language ? "pt-BR" : "en");
++    if (interface_language_save_failed)
++        ImGui::TextWrapped("%s", ui_text("Language changed for this session, but could not be saved."));
++
+     /* The lobby room is a full-screen view keyed to seat state: seated in a
+      * lobby means the room, whatever view was up before (join from the
+      * browser, or a soft-return from a match); not seated means never the
 diff --git a/src/common/launcher_i18n.cpp b/src/common/launcher_i18n.cpp
-index 91a6c97..b489ab4 100644
+index 91a6c97..2d8b1f5 100644
 --- a/src/common/launcher_i18n.cpp
 +++ b/src/common/launcher_i18n.cpp
-@@ -11,6 +11,65 @@ struct LauncherI18nEntry {
+@@ -1,6 +1,17 @@
+ #include "launcher_i18n.h"
+ 
+ #include <cstring>
++#include <atomic>
++#include <cstdlib>
++#include <filesystem>
++#include <fstream>
++#include <mutex>
++#include <string>
++#ifdef _WIN32
++#define WIN32_LEAN_AND_MEAN
++#define NOMINMAX
++#include <windows.h>
++#endif
+ 
+ #ifndef RECOMP_UI_LANGUAGE
+ #define RECOMP_UI_LANGUAGE "en"
+@@ -11,6 +22,185 @@ struct LauncherI18nEntry {
      const char* localized;
  };
  
 +static const LauncherI18nEntry kBrazilianPortuguese[] = {
++    {"The MP3 is empty or exceeds 200 MB.", "O MP3 está vazio ou excede 200 MB."},
++    {"The file does not contain a valid MP3.", "O arquivo não contém um MP3 válido."},
++    {"Invalid MP3 audio format.", "Formato de áudio MP3 inválido."},
++    {"Could not convert the audio.", "Não foi possível converter o áudio."},
++    {"Could not create the music cache.", "Não foi possível criar o cache da música."},
++    {"Could not write the music cache.", "Não foi possível gravar o cache."},
++    {"Audio conversion failed.", "Falha na conversão do áudio."},
++    {"Could not read converted audio.", "Falha ao obter o áudio convertido."},
++    {"The music exceeds the 80-minute audio CD limit.", "A música excede os 80 minutos de um CD de áudio."},
++    {"Not enough space to prepare the music.", "Espaço insuficiente para preparar a música."},
++    {"MP3 conversion failed.", "Falha ao converter o MP3."},
++    {"The MP3 is damaged or changes format during the track.", "O MP3 está corrompido ou muda de formato durante a faixa."},
++    {"The MP3 did not produce valid audio.", "O MP3 não produziu áudio válido."},
++    {"Could not finish the music cache.", "Falha ao concluir o cache da música."},
++    {"Could not create the virtual audio CD.", "Falha ao criar o CD de áudio virtual."},
++    {"Could not read this CD. Check the disc and drive.", "Não foi possível ler esse CD. Confira a mídia e o drive."},
++    {"This disc has no audio tracks.", "Esse disco não contém faixas de áudio."},
++    {"The original disc is not ready yet.", "O disco original ainda não está pronto."},
++    {"Could not insert the CD. Try another music source.", "O CD não pôde ser inserido. Você pode tentar outra fonte."},
++    {"Music inserted. Choose the track in the game menu.", "Música inserida. Escolha a faixa no menu do jogo."},
++    {"Music ready. Choose Single track or All tracks in the game, then track 1.", "Música pronta. Escolha Single track ou All tracks no jogo."},
++    {"The settings file contains an error and was preserved.", "O arquivo de configurações contém um erro; ele foi preservado."},
++    {"Could not save settings.", "Não foi possível salvar as configurações."},
++    {"Settings saved. Restart to apply renderer or VSync changes.", "Configurações salvas. Reinicie para aplicar as mudanças de renderizador ou VSync."},
++    {"Settings applied and saved.", "Configurações aplicadas e salvas."},
++    {"Preparing music...", "Preparando a música..."},
++    {"No physical or virtual CD drive was found.", "Nenhum drive de CD físico ou virtual foi encontrado."},
++    {"Vib-Ribbon disc inserted.", "Disco do Vib-Ribbon inserido."},
++    {"Could not read the game disc again.", "Não foi possível reler o disco do jogo."},
++    {"Return to the GAME menu to choose music from the original disc.", "Volte ao menu GAME para escolher uma música do disco original."},
++    {"Demo: choose a difficulty for the game disc.", "Demo: escolha a dificuldade do disco do jogo."},
++    {"PC settings", "Configurações do PC"},
++    {"Audio CD", "CD de áudio"},
++    {"My music", "Minhas músicas"},
++    {"Choose a music source. The game uses its original music analysis.", "Escolha uma fonte de música. O jogo continua usando sua análise original."},
++    {"Resume game", "Continuar no jogo"},
++    {"Choose MP3 file...", "Escolher arquivo MP3..."},
++    {"Play this music", "Jogar esta música"},
++    {"Watch this music (Demo)", "Assistir esta música (Demo)"},
++    {"Physical or virtual CD drive...", "CD físico ou drive virtual..."},
++    {"Open CD image (CUE)...", "Abrir imagem de CD (CUE)..."},
++    {"Watch game music (Demo)", "Assistir músicas do jogo (Demo)"},
++    {"Reinsert Vib-Ribbon disc", "Reinserir disco do Vib-Ribbon"},
++    {"Play", "Jogar"},
++    {"Watch / Demo", "Assistir / Demo"},
++    {"Refresh drives", "Atualizar drives"},
++    {"Back", "Voltar"},
++    {"Window width", "Largura da janela"},
++    {"Fullscreen", "Tela cheia"},
++    {"Renderer", "Renderizador"},
++    {"Automatic internal resolution", "Resolução interna automática"},
++    {"Internal resolution", "Resolução interna"},
++    {"Renderer and VSync may require a restart. Game speed stays unchanged.", "Renderizador e VSync podem exigir reiniciar. A velocidade do jogo permanece original."},
++    {"Apply and save", "Aplicar e salvar"},
++    {"More session settings", "Mais opções de sessão"},
++    {"Duration: %.1f s", "Duração: %.1f s"},
++    {"F10 / Ctrl+L: menu     Esc: back", "F10 / Ctrl+L: menu     Esc: voltar"},
++    {"Music ready.", "Pronta."},
++    {"Choose an MP3, wait for preparation, then select Play or Demo. In the game, confirm Single track and track 1.", "Escolha um MP3, aguarde o preparo e selecione Jogar ou Demo. No jogo, confirme Single track e a faixa 1."},
++    {"Language changed for this session, but could not be saved.", "O idioma mudou nesta sessão, mas não pôde ser salvo."},
++    {"The MP3 is empty or exceeds 200 MB.", "O MP3 está vazio ou excede 200 MB."},
++    {"The file does not contain a valid MP3.", "O arquivo não contém um MP3 válido."},
++    {"Invalid MP3 audio format.", "Formato de áudio MP3 inválido."},
++    {"Could not convert the audio.", "Não foi possível converter o áudio."},
++    {"Could not create the music cache.", "Não foi possível criar o cache da música."},
++    {"Could not write the music cache.", "Não foi possível gravar o cache."},
++    {"Audio conversion failed.", "Falha na conversão do áudio."},
++    {"Could not read converted audio.", "Falha ao obter o áudio convertido."},
++    {"The music exceeds the 80-minute audio CD limit.", "A música excede os 80 minutos de um CD de áudio."},
++    {"Not enough space to prepare the music.", "Espaço insuficiente para preparar a música."},
++    {"MP3 conversion failed.", "Falha ao converter o MP3."},
++    {"The MP3 is damaged or changes format during the track.", "O MP3 está corrompido ou muda de formato durante a faixa."},
++    {"The MP3 did not produce valid audio.", "O MP3 não produziu áudio válido."},
++    {"Could not finish the music cache.", "Falha ao concluir o cache da música."},
++    {"Could not create the virtual audio CD.", "Falha ao criar o CD de áudio virtual."},
++    {"Could not read this CD. Check the disc and drive.", "Não foi possível ler esse CD. Confira a mídia e o drive."},
++    {"This disc has no audio tracks.", "Esse disco não contém faixas de áudio."},
++    {"The original disc is not ready yet.", "O disco original ainda não está pronto."},
++    {"Could not insert the CD. Try another music source.", "O CD não pôde ser inserido. Você pode tentar outra fonte."},
++    {"Music inserted. Choose the track in the game menu.", "Música inserida. Escolha a faixa no menu do jogo."},
++    {"Music ready. Choose Single track or All tracks in the game, then track 1.", "Música pronta. Escolha Single track ou All tracks no jogo."},
++    {"The settings file contains an error and was preserved.", "O arquivo de configurações contém um erro; ele foi preservado."},
++    {"Could not save settings.", "Não foi possível salvar as configurações."},
++    {"Settings saved. Restart to apply renderer or VSync changes.", "Configurações salvas. Reinicie para aplicar as mudanças de renderizador ou VSync."},
++    {"Settings applied and saved.", "Configurações aplicadas e salvas."},
++    {"Preparing music...", "Preparando a música..."},
++    {"No physical or virtual CD drive was found.", "Nenhum drive de CD físico ou virtual foi encontrado."},
++    {"Vib-Ribbon disc inserted.", "Disco do Vib-Ribbon inserido."},
++    {"Could not read the game disc again.", "Não foi possível reler o disco do jogo."},
++    {"Return to the GAME menu to choose music from the original disc.", "Volte ao menu GAME para escolher uma música do disco original."},
++    {"Demo: choose a difficulty for the game disc.", "Demo: escolha a dificuldade do disco do jogo."},
++    {"PC settings", "Configurações do PC"},
++    {"Audio CD", "CD de áudio"},
++    {"My music", "Minhas músicas"},
++    {"Choose a music source. The game uses its original music analysis.", "Escolha uma fonte de música. O jogo continua usando sua análise original."},
++    {"Resume game", "Continuar no jogo"},
++    {"Choose MP3 file...", "Escolher arquivo MP3..."},
++    {"Play this music", "Jogar esta música"},
++    {"Watch this music (Demo)", "Assistir esta música (Demo)"},
++    {"Physical or virtual CD drive...", "CD físico ou drive virtual..."},
++    {"Open CD image (CUE)...", "Abrir imagem de CD (CUE)..."},
++    {"Watch game music (Demo)", "Assistir músicas do jogo (Demo)"},
++    {"Reinsert Vib-Ribbon disc", "Reinserir disco do Vib-Ribbon"},
++    {"Play", "Jogar"},
++    {"Watch / Demo", "Assistir / Demo"},
++    {"Refresh drives", "Atualizar drives"},
++    {"Back", "Voltar"},
++    {"Window width", "Largura da janela"},
++    {"Fullscreen", "Tela cheia"},
++    {"Renderer", "Renderizador"},
++    {"Automatic internal resolution", "Resolução interna automática"},
++    {"Internal resolution", "Resolução interna"},
++    {"Renderer and VSync may require a restart. Game speed stays unchanged.", "Renderizador e VSync podem exigir reiniciar. A velocidade do jogo permanece original."},
++    {"Apply and save", "Aplicar e salvar"},
++    {"More session settings", "Mais opções de sessão"},
++    {"Duration: %.1f s", "Duração: %.1f s"},
++    {"F10 / Ctrl+L: menu     Esc: back", "F10 / Ctrl+L: menu     Esc: voltar"},
++    {"Music ready.", "Pronta."},
++    {"Choose an MP3, wait for preparation, then select Play or Demo. In the game, confirm Single track and track 1.", "Escolha um MP3, aguarde o preparo e selecione Jogar ou Demo. No jogo, confirme Single track e a faixa 1."},
++    {"Language changed for this session, but could not be saved.", "O idioma mudou nesta sessão, mas não pôde ser salvo."},
 +    {"Settings", "Configurações"}, {"Mods", "Melhorias"},
 +    {"Assist Tools", "Assistência"}, {"Credits", "Créditos"},
 +    {"< Back", "< Voltar"}, {"General", "Geral"},
@@ -92,7 +247,69 @@ index 91a6c97..b489ab4 100644
  static const LauncherI18nEntry kItalian[] = {
      {"Settings", "Impostazioni"},
      {"Mods", "Mod"},
-@@ -231,5 +290,10 @@ const char* launcher_i18n_text(const char* english) {
+@@ -215,8 +405,60 @@ static const char* lookup(const LauncherI18nEntry* entries, int count,
+     return english;
+ }
+ 
++namespace {
++int language_id(const char* value) {
++    if (!value) return -1;
++    if (!std::strcmp(value, "en") || !std::strcmp(value, "en-US")) return 0;
++    if (!std::strcmp(value, "pt-BR") || !std::strcmp(value, "pt-br")) return 1;
++    if (!std::strcmp(value, "it") || !std::strcmp(value, "it-IT")) return 2;
++    return -1;
++}
++std::filesystem::path preference_path() {
++    if (const char* override_path = std::getenv("RECOMP_UI_LANGUAGE_FILE"))
++        return std::filesystem::u8path(override_path);
++#ifdef _WIN32
++    wchar_t exe[32768];
++    const DWORD size = GetModuleFileNameW(nullptr, exe, 32768);
++    if (size && size < 32768)
++        return std::filesystem::path(std::wstring(exe, size)).parent_path() / "interface-language.txt";
++#else
++    std::error_code error;
++    auto exe = std::filesystem::read_symlink("/proc/self/exe", error);
++    if (!error) return exe.parent_path() / "interface-language.txt";
++#endif
++    return std::filesystem::current_path() / "interface-language.txt";
++}
++std::atomic<int>& selected_language() {
++    static std::atomic<int> value{[] {
++        int id = language_id(RECOMP_UI_LANGUAGE);
++        try {
++            std::ifstream file(preference_path());
++            char saved[16]{};
++            file.getline(saved, sizeof saved);
++            const int restored = language_id(saved);
++            if (file && restored >= 0) id = restored;
++        } catch (...) {}
++        return id >= 0 ? id : 0;
++    }()};
++    return value;
++}
++}
+ const char* launcher_i18n_language(void) {
+-    return RECOMP_UI_LANGUAGE;
++    static const char* names[] = {"en", "pt-BR", "it"};
++    return names[selected_language().load()];
++}
++bool launcher_i18n_set_language(const char* language) {
++    const int id = language_id(language);
++    if (id < 0) return false;
++    static std::mutex save_mutex;
++    std::lock_guard<std::mutex> lock(save_mutex);
++    selected_language() = id;
++    try {
++        std::ofstream file(preference_path(), std::ios::binary | std::ios::trunc);
++        file << launcher_i18n_language() << '\n';
++        file.close();
++        return static_cast<bool>(file);
++    } catch (...) { return false; }
+ }
+ 
+ const char* launcher_i18n_text(const char* english) {
+@@ -231,5 +473,10 @@ const char* launcher_i18n_text(const char* english) {
          return lookup(kItalian, (int)(sizeof(kItalian) / sizeof(kItalian[0])),
                        english);
      }
@@ -103,3 +320,13 @@ index 91a6c97..b489ab4 100644
 +    }
      return english ? english : "";
  }
+diff --git a/src/common/launcher_i18n.h b/src/common/launcher_i18n.h
+index 4f8c2f1..dcd7c03 100644
+--- a/src/common/launcher_i18n.h
++++ b/src/common/launcher_i18n.h
+@@ -2,3 +2,5 @@
+ 
+ const char* launcher_i18n_language(void);
+ const char* launcher_i18n_text(const char* english);
++// Applies immediately. Returns false if invalid or the preference could not be saved.
++bool launcher_i18n_set_language(const char* language);

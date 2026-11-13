@@ -1,16 +1,19 @@
-# Como testar e contribuir
+# Testing and contributing
 
-Leia README.md e docs/STATUS.md. Use seu próprio dump europeu SCES-02873.
-Inclua no relato: commit, Windows, CPU/GPU, renderizador, controles, passos para
-reproduzir e resultado esperado/observado. Informe fonte musical e modo manual/Demo.
+Read README.md and docs/STATUS.en.md. Use your own European SCES-02873 dump.
+When reporting a problem, include the commit/version, Windows version, CPU/GPU,
+renderer, input device, reproduction steps and expected/observed behavior.
+State whether it affects official music, MP3 or CD, and manual play or Demo.
+For interface issues, include the selected language and the screen involved.
 
-Não envie ROMs, BIOS, músicas ou saves pessoais. Revise dados pessoais dos logs
-antes de compartilhar somente o trecho necessário. Relatórios ficam locais.
+Do not attach ROMs, BIOS, music or personal saves. Review logs for personal paths
+and share only the relevant excerpt. Full reports are ignored by Git.
 
-Descreva o problema e os testes no PR. Preserve OpenBIOS, REFERENCE/LLE e o áudio
-original. Não edite C gerado para forçar progressão nem relaxe guards. O intérprete
-é fallback: geração de código não equivale a cobertura medida.
+Describe the problem and validation in your PR. Preserve OpenBIOS, REFERENCE/LLE
+and the original audio path. Do not edit generated C to force progression or relax
+byte guards. The interpreter is a fallback: code generation is not measured coverage.
 
-Execute os testes Python e tools/check_repository.py. Mudanças em submódulos
-precisam de patch em patches/ para que outra cópia reproduza a alteração.
-Não envie builds, dados do disco ou caches em commits.
+Run the Python tests and tools/check_repository.py. Submodule changes require a
+patch in patches/ so another checkout can reproduce them. Do not commit builds,
+disc data or caches. Keep English and Brazilian Portuguese music-menu strings in
+the shared localization table. The game-text language remains a separate setting.

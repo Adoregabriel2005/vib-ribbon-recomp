@@ -1,22 +1,22 @@
-name: Problema durante o teste
-description: Relatar um erro com passos para reproduzir
+name: Problem while testing
+description: Report a bug with steps to reproduce it
 body:
   - type: textarea
     id: environment
     attributes:
-      label: Versão e computador
-      description: Commit, Windows, CPU, GPU, renderizador e controle.
+      label: Version and computer
+      description: Commit/version, Windows, CPU, GPU, renderer, controller and interface language.
     validations:
       required: true
   - type: textarea
     id: reproduction
     attributes:
-      label: Como reproduzir
-      description: Passos, resultado esperado e observado. Informe fonte musical e modo manual/Demo.
+      label: Steps to reproduce
+      description: Steps, expected and observed behavior. Include the music source and manual/Demo mode.
     validations:
       required: true
   - type: textarea
     id: evidence
     attributes:
-      label: Evidência opcional
-      description: Captura ou trecho de log revisado. Não anexe ROM, BIOS, músicas ou dados pessoais.
+      label: Optional evidence
+      description: Screenshot or reviewed log excerpt. Do not attach ROMs, BIOS, music or personal data.

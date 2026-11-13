@@ -10,6 +10,7 @@
 #include "host_osd.h"
 #include "config_loader.h"
 #include "internal_resolution.h"
+#include "launcher_i18n.h"
 #include <SDL3/SDL.h>
 #include "imgui.h"
 #include "imgui_impl_sdl3.h"
@@ -29,8 +30,11 @@
 #include <string>
 #include <vector>
 #include <cstdio>
+#include <cstring>
 
 namespace {
+const char* tr(const char* english) { return launcher_i18n_text(english); }
+bool portuguese() { return std::strcmp(launcher_i18n_language(), "pt-BR") == 0; }
 const PsxMenuHost* host;
 PsxMenuHost settings_host{};
 const PsxMenuProvider* settings;
@@ -140,10 +144,11 @@ std::filesystem::path choose(bool mp3) {
     dialog.lStructSize = sizeof dialog;
     dialog.hwndOwner = static_cast<HWND>(SDL_GetPointerProperty(
         SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
-    dialog.lpstrFilter = mp3 ? L"Músicas MP3\0*.mp3\0\0" : L"Imagem de CD\0*.cue\0\0";
+    dialog.lpstrFilter = mp3 ? L"MP3\0*.mp3\0\0" : L"CD image (CUE)\0*.cue\0\0";
     dialog.lpstrFile = file;
     dialog.nMaxFile = sizeof file / sizeof file[0];
-    dialog.lpstrTitle = mp3 ? L"Escolher música MP3" : L"Escolher CD de áudio";
+    dialog.lpstrTitle = portuguese() ? (mp3 ? L"Escolher música MP3" : L"Escolher CD de áudio") :
+        (mp3 ? L"Choose MP3 file" : L"Choose audio CD");
     dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameW(&dialog)) return {};
     return std::filesystem::path(file);
@@ -152,24 +157,24 @@ std::filesystem::path choose(bool mp3) {
 bool mount(const std::string& path) {
     if (!host || (host->netplay_active && host->netplay_active())) return false;
     PS1::ISOReader check;
-    if (!check.Open(path)) { status = "Não foi possível ler esse CD. Confira a mídia e o drive."; return false; }
+    if (!check.Open(path)) { status = "Could not read this CD. Check the disc and drive."; return false; }
     bool audio = false;
     for (int i = 1; i <= check.TrackCount(); ++i) audio |= check.TrackIsAudio(i);
-    if (!audio) { status = "Esse disco não contém faixas de áudio."; return false; }
+    if (!audio) { status = "This disc has no audio tracks."; return false; }
     check.Close();
     if (boot_disc.empty()) {
         if (const char* original = cdrom_mounted_path()) boot_disc = original;
     }
-    if (boot_disc.empty()) { status = "O disco original ainda não está pronto."; return false; }
+    if (boot_disc.empty()) { status = "The original disc is not ready yet."; return false; }
     // Keep the game's boot image at index 1; music exists only in this session.
     const int old = cdrom_disc_selected();
     const char* paths[] = {boot_disc.c_str(), path.c_str()};
     cdrom_disc_roster_set(paths, 2, old == 2 ? 2 : 1);
     if (psx_disc_tray_cycle(2, PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC) != PSX_DISC_TRAY_OK) {
-        status = "O CD não pôde ser inserido. Você pode tentar outra fonte.";
+        status = "Could not insert the CD. Try another music source.";
         return false;
     }
-    status = "Música inserida. Escolha a faixa no menu do jogo.";
+    status = "Music inserted. Choose the track in the game menu.";
     show(false);
     return true;
 }
@@ -185,8 +190,8 @@ void choose_media(const std::string& path, bool demo) {
         // Let the guarded guest-menu boundary apply the mode before mounting.
         show(false);
     } else {
-        status = "Música pronta. Escolha Single track ou All tracks no jogo.";
-        host_osd_push(status.c_str(), 5000);
+        status = "Music ready. Choose Single track or All tracks in the game, then track 1.";
+        host_osd_push(tr(status.c_str()), 5000);
         show(false);
     }
 }
@@ -208,13 +213,13 @@ void pc_settings() {
 void apply_pc_settings() {
     const auto path = std::filesystem::u8path(SDL_GetBasePath()) / "settings.toml";
     auto saved = PSXRecompV4::load_user_settings(path);
-    if (saved.parse_error) { status = "O arquivo de configurações contém um erro; ele foi preservado."; return; }
+    if (saved.parse_error) { status = "The settings file contains an error and was preserved."; return; }
     const int vsync = pc_vsync == 2 ? -1 : pc_vsync == 3 ? 2 : pc_vsync;
     const bool restart_sync = (saved.has_vsync ? saved.vsync : 1) != vsync;
     saved.window_width = pc_width; saved.has_window_width = true;
     saved.audio_volume = pc_volume; saved.has_audio_volume = true;
     saved.vsync = vsync; saved.has_vsync = true;
-    if (!PSXRecompV4::save_user_settings(path, saved)) { status = "Não foi possível salvar as configurações."; return; }
+    if (!PSXRecompV4::save_user_settings(path, saved)) { status = "Could not save settings."; return; }
     host_volume_set(pc_volume);
     SDL_SetWindowSize(window, pc_width, pc_width * 3 / 4);
     const unsigned restart_video = host->video_apply(&pc_video);
@@ -226,8 +231,8 @@ void apply_pc_settings() {
             pc_auto_resolution || pc_resolution != 1 ? "true" : "false");
     }
     status = restart_video || restart_sync ?
-        "Configurações salvas. Reinicie para aplicar as mudanças de renderizador ou VSync." :
-        "Configurações aplicadas e salvas.";
+        "Settings saved. Restart to apply renderer or VSync changes." :
+        "Settings applied and saved.";
 }
 
 void act(int action) {
@@ -238,7 +243,7 @@ void act(int action) {
         if (source.empty()) return;
         busy = true;
         prepared = {};
-        status = "Preparando a música...";
+        status = "Preparing music...";
         const auto cache = std::filesystem::u8path(SDL_GetBasePath()) / "music-cache";
         conversion = std::async(std::launch::async, [source, cache]() {
             try { auto result = vib::prepare_mp3(source, cache);
@@ -253,7 +258,7 @@ void act(int action) {
             wchar_t root[] = L"D:\\"; root[0] = letter;
             if (GetDriveTypeW(root) == DRIVE_CDROM) drives.push_back(letter);
         }
-        if (drives.empty()) status = "Nenhum drive de CD físico ou virtual foi encontrado.";
+        if (drives.empty()) status = "No physical or virtual CD drive was found.";
     } else if (action == 3) {
         auto file = choose(false);
         if (!file.empty()) choose_media(file.u8string(), demo_choice);
@@ -265,9 +270,9 @@ void act(int action) {
         if (boot_disc.empty()) return;
         const int requested = cdrom_disc_roster_count() > 1 ? 1 : 0;
         if (psx_disc_tray_cycle(requested, PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC) == PSX_DISC_TRAY_OK) {
-            status = "Disco do Vib-Ribbon inserido."; show(false);
+            status = "Vib-Ribbon disc inserted."; show(false);
         }
-        else status = "Não foi possível reler o disco do jogo.";
+        else status = "Could not read the game disc again.";
     } else if ((action == 6 || action == 14) && !prepared.cue.empty())
         choose_media(prepared.cue.u8string(), action == 14);
     else if (action == 7) {
@@ -279,12 +284,12 @@ void act(int action) {
     else if (action == 13) { show(true); settings_from_game = true; pc_settings(); }
     else if (action == 15) {
         if (game_scene != 1 && game_scene != 2) {
-            status = "Volte ao menu GAME para escolher uma música do disco original."; return;
+            status = "Return to the GAME menu to choose music from the original disc."; return;
         }
         if (cdrom_disc_roster_count() > 1 && cdrom_disc_selected() != 1)
             psx_disc_tray_cycle(1, PSX_DISC_TRAY_ORIGIN_SESSION_MUSIC);
         active_music_mode = -1; official_demo = true; show(false);
-        host_osd_push("Demo: escolha a dificuldade do disco do jogo.", 5000);
+        host_osd_push(tr("Demo: choose a difficulty for the game disc."), 5000);
     }
     else if (action == 20) apply_pc_settings();
     else if (action == 21) { show(false); settings->set_open(settings->ctx, 1); }
@@ -338,7 +343,7 @@ int event(void*, const void* raw) {
     }
     if (e.type == done_event) {
         if (busy && conversion.valid()) {
-            try { prepared = conversion.get(); status = "Pronta: " + prepared.title; }
+            try { prepared = conversion.get(); status = "Music ready."; }
             catch (const std::exception& ex) { status = ex.what(); }
             busy = false;
         }
@@ -392,55 +397,64 @@ void draw(void*, int w, int h) {
     ImGui::SetNextWindowPos(ImVec2(size.x/2, size.y/2), ImGuiCond_Always, ImVec2(0.5f,0.5f));
     ImGui::Begin("Vib-Ribbon##vib_music", nullptr,
         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove);
-    ImGui::TextUnformatted(page == 2 ? "Configurações do PC" : page == 1 ? "CD de áudio" : "Minhas músicas");
+    int language = portuguese() ? 1 : 0;
+    ImGui::SetNextItemWidth(230);
+    if (ImGui::Combo("Language / Idioma##music_language", &language, "English\0Português (Brasil)\0")) {
+        if (!launcher_i18n_set_language(language ? "pt-BR" : "en"))
+            status = "Language changed for this session, but could not be saved.";
+    }
+    ImGui::TextUnformatted(tr(page == 2 ? "PC settings" : page == 1 ? "Audio CD" : "My music"));
     ImGui::Separator();
-    if (page != 2) ImGui::TextWrapped("Escolha uma fonte de música. O jogo continua usando sua análise original.");
+    if (page != 2) ImGui::TextWrapped("%s", tr("Choose an MP3, wait for preparation, then select Play or Demo. In the game, confirm Single track and track 1."));
     auto button = [&](const char* text, int id, bool enabled = true) {
         if (!enabled) ImGui::BeginDisabled();
-        if (ImGui::Button(text, ImVec2(-1, 34))) post_action(id);
+        if (ImGui::Button(tr(text), ImVec2(-1, 34))) post_action(id);
         if (!enabled) ImGui::EndDisabled();
     };
     if (!page) {
-        button("Continuar no jogo", 0);
-        button("Escolher arquivo MP3...", 1, !busy);
+        button("Resume game", 0);
+        button("Choose MP3 file...", 1, !busy);
         if (!prepared.cue.empty()) {
-            button("Jogar esta música", 6, !busy);
-            button("Assistir esta música (Demo)", 14, !busy);
+            button("Play this music", 6, !busy);
+            button("Watch this music (Demo)", 14, !busy);
         }
-        button("CD físico ou drive virtual...", 2, !busy);
-        button("Abrir imagem de CD (CUE)...", 3, !busy);
-        button("Configurações do PC", 4);
-        button("Assistir músicas do jogo (Demo)", 15, !busy && (game_scene == 1 || game_scene == 2));
-        button("Reinserir disco do Vib-Ribbon", 5, !busy);
+        button("Physical or virtual CD drive...", 2, !busy);
+        button("Open CD image (CUE)...", 3, !busy);
+        button("PC settings", 4);
+        button("Watch game music (Demo)", 15, !busy && (game_scene == 1 || game_scene == 2));
+        button("Reinsert Vib-Ribbon disc", 5, !busy);
     } else if (page == 1) {
-        if (ImGui::RadioButton("Jogar", !demo_choice)) demo_choice = false;
+        if (ImGui::RadioButton(tr("Play"), !demo_choice)) demo_choice = false;
         ImGui::SameLine();
-        if (ImGui::RadioButton("Assistir / Demo", demo_choice)) demo_choice = true;
+        if (ImGui::RadioButton(tr("Watch / Demo"), demo_choice)) demo_choice = true;
         for (size_t i = 0; i < drives.size(); ++i) {
             std::string label = "Drive "; label += drives[i]; label += ':';
             button(label.c_str(), 100 + static_cast<int>(i));
         }
-        button("Atualizar drives", 2);
-        button("Voltar", 7);
+        button("Refresh drives", 2);
+        button("Back", 7);
     } else {
-        ImGui::SliderInt("Largura da janela", &pc_width, 640, 3840, "%d px");
-        ImGui::Combo("Tela cheia", &pc_video.fullscreen, "Janela\0Sem bordas\0Exclusiva\0");
-        ImGui::Combo("Renderizador", &pc_video.renderer, "Software\0OpenGL\0");
-        pc_resolution_changed |= ImGui::Checkbox("Resolução interna automática", &pc_auto_resolution);
+        ImGui::SliderInt(tr("Window width"), &pc_width, 640, 3840, "%d px");
+        ImGui::Combo(tr("Fullscreen"), &pc_video.fullscreen, portuguese() ? "Janela\0Sem bordas\0Exclusiva\0" : "Windowed\0Borderless\0Exclusive\0");
+        ImGui::Combo(tr("Renderer"), &pc_video.renderer, "Software\0OpenGL\0");
+        pc_resolution_changed |= ImGui::Checkbox(tr("Automatic internal resolution"), &pc_auto_resolution);
         if (pc_auto_resolution) ImGui::BeginDisabled();
-        pc_resolution_changed |= ImGui::SliderInt("Resolução interna", &pc_resolution, 1, 32, "%dx");
+        pc_resolution_changed |= ImGui::SliderInt(tr("Internal resolution"), &pc_resolution, 1, 32, "%dx");
         if (pc_auto_resolution) ImGui::EndDisabled();
-        ImGui::Combo("VSync", &pc_vsync, "Desligado\0Ligado\0Adaptativo\0VRR\0");
-        ImGui::SliderInt("Volume", &pc_volume, 0, 100, "%d%%");
-        ImGui::TextWrapped("Renderizador e VSync podem exigir reiniciar. A velocidade do jogo permanece original.");
-        button("Aplicar e salvar", 20);
-        button("Mais opções de sessão", 21);
-        button("Voltar", 7);
+        ImGui::Combo("VSync", &pc_vsync, portuguese() ? "Desligado\0Ligado\0Adaptativo\0VRR\0" : "Off\0On\0Adaptive\0VRR\0");
+        ImGui::SliderInt(tr("Volume"), &pc_volume, 0, 100, "%d%%");
+        ImGui::TextWrapped("%s", tr("Renderer and VSync may require a restart. Game speed stays unchanged."));
+        button("Apply and save", 20);
+        button("More session settings", 21);
+        button("Back", 7);
     }
-    if (busy) ImGui::TextUnformatted("Preparando a música...");
-    if (!status.empty()) { ImGui::Separator(); ImGui::TextWrapped("%s", status.c_str()); }
-    if (page != 2 && !prepared.cue.empty()) ImGui::Text("Duração: %.1f s", prepared.seconds());
-    ImGui::TextUnformatted("F10 / Ctrl+L: menu     Esc: voltar");
+    if (busy) ImGui::TextUnformatted(tr("Preparing music..."));
+    if (!status.empty()) { ImGui::Separator(); ImGui::TextWrapped("%s", tr(status.c_str())); }
+    if (page != 2 && !prepared.cue.empty()) {
+        ImGui::TextWrapped("%s", prepared.title.c_str());
+        ImGui::Text(tr("Duration: %.1f s"), prepared.seconds());
+    }
+    ImGui::TextUnformatted(tr("F10 / Ctrl+L: menu     Esc: back"));
     ImGui::End(); ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
     ImGui::SetCurrentContext(previous);
@@ -475,6 +489,11 @@ int debug_music(const char* args, char* reply, int cap) {
                     0x540 + i * 4, scene_words[i].load());
             return 1;
         }
+        if (command.rfind("language ", 0) == 0) {
+            if (!launcher_i18n_set_language(command.c_str() + 9)) {
+                std::snprintf(reply, cap, "language change could not be saved"); return 0;
+            }
+        }
         if (command.rfind("prepare ", 0) == 0 && host && !busy) {
             queued_file = command.substr(8); post_action(9);
         } else if (command == "insert" && host) post_action(6);
@@ -485,9 +504,9 @@ int debug_music(const char* args, char* reply, int cap) {
         else if (command == "original" && host) post_action(5);
         else if (command == "open" && host) show(true);
         else if (command == "close" && host) post_action(0);
-        std::snprintf(reply, cap, "attached=%d busy=%d prepared=%d open=%d scene=%d mode=%d drives=%zu volume=%d status=%s",
+        std::snprintf(reply, cap, "attached=%d busy=%d prepared=%d open=%d scene=%d mode=%d drives=%zu volume=%d language=%s status=%s",
             host != nullptr, busy, !prepared.cue.empty(), opened.load(), game_scene.load(),
-            active_music_mode.load(), drives.size(), host_volume_get(), status.c_str());
+            active_music_mode.load(), drives.size(), host_volume_get(), launcher_i18n_language(), status.c_str());
         return 1;
     } catch (...) { std::snprintf(reply, cap, "request failed"); return 0; }
 }

@@ -13,7 +13,7 @@ project(VibRibbonRecomp LANGUAGES C CXX)
 
 # Native menus use recomp-ui; the original game text remains a separate layer.
 set(PSX_RECOMP_UI ON CACHE BOOL "Vib-Ribbon native settings interface" FORCE)
-set(RECOMP_UI_LANGUAGE "pt-BR" CACHE STRING "Initial native interface language")
+set(RECOMP_UI_LANGUAGE "en" CACHE STRING "Initial native interface language")
 # Full netplay UI -- enable after adding recomp-ui + testing:
 # if(EXISTS "${PSXRECOMP_ROOT}/lib/recomp-net/CMakeLists.txt")
 #     set(PSX_NETPLAY ON CACHE BOOL "..." FORCE)
